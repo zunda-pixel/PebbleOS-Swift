@@ -114,13 +114,11 @@ def compile_swift_sources(tg):
 
     # App-provided bridging header, else the SDK default (#include <pebble.h>).
     bridging = getattr(tg, "swift_bridging_header", None)
-    if bridging:
-        task.swift_bridging_header = bld.path.find_node(bridging).abspath()
-    else:
-        default_bridging = find_sdk_component(bld, tg.env, "swift/bridging.h")
-        task.swift_bridging_header = (
-            default_bridging.abspath() if default_bridging else None
-        )
+    bridging_node = (
+        bld.path.find_node(bridging) if bridging
+        else find_sdk_component(bld, tg.env, "swift/bridging.h")
+    )
+    task.swift_bridging_header = bridging_node.abspath() if bridging_node else None
 
     # SDK platform headers + the build dirs holding the generated headers that
     # pebble.h pulls in (message_keys.auto.h, src/resource_ids.auto.h).
@@ -130,11 +128,14 @@ def compile_swift_sources(tg):
         build_node.abspath(),
     ]
 
-    # The importer must run after those generated headers exist.
+    # Rebuild when the generated headers or the bridging header change, and run
+    # after the generated headers exist.
     task.dep_nodes = [
         bld.bldnode.find_or_declare("include/message_keys.auto.h"),
         build_node.find_or_declare("src/resource_ids.auto.h"),
     ]
+    if bridging_node is not None:
+        task.dep_nodes.append(bridging_node)
 
     tg.link_task.inputs.append(swift_obj)
     tg.link_task.set_run_after(task)

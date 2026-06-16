@@ -100,7 +100,7 @@ def build_app(bld, app_name):
     # -----------------------------------------------------------------------------------
     # Generate the rule to compile and link the sources into an ELF
     includes = [sdk_folder.make_node('include'), app_name, '%s/src' % (app_name)]
-    link_flags = ['-mcpu=cortex-m3','-mthumb','-fPIE', '-Wl,--emit-relocs']
+    link_flags = ['-mcpu=cortex-m3','-mthumb','-fPIE', '-Wl,--emit-relocs', '-Wl,--gc-sections']
     source = bld.path.ant_glob('%s/src/**/*.c' % (app_name)) + [appinfo_c_node]
     ld_script = bld.path.make_node('pebble_app.ld').path_from(bld.path)
     app_elf_file = bld.path.get_bld().make_node('%s/pebble-app.elf' % (app_name))
@@ -134,6 +134,7 @@ def build_app(bld, app_name):
         bridging_node = bld.path.get_src().find_node('%s/src/bridging.h' % (app_name))
         if bridging_node is not None:
             swift_tg.swift_bridging_header = bridging_node.abspath()
+            bld.add_manual_dependency(swift_obj, bridging_node)
         # Ensure the generated headers exist before the Swift importer runs.
         bld.add_manual_dependency(swift_obj, message_keys_auto_node)
         bld.add_manual_dependency(swift_obj, resource_ids_auto_node)

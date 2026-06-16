@@ -94,10 +94,11 @@ public struct Text: PebbleView {
   }
   public func place(_ ctx: inout LayoutCtx, into parent: OpaquePointer?) {
     let frame = advance(&ctx, main: main(ctx))
-    let label = text_layer_create(frame)
+    let label = text_layer_create(frame)!
     text_layer_set_text(label, cString(text))
     text_layer_set_text_alignment(label, GTextAlignmentCenter)
     layer_add_child(parent, text_layer_get_layer(label))
+    buildingWindow?.textLayers.append(label)
   }
 }
 
@@ -115,11 +116,13 @@ public struct Image: PebbleView {
   }
   public func place(_ ctx: inout LayoutCtx, into parent: OpaquePointer?) {
     let frame = advance(&ctx, main: main(ctx))
-    let bitmap = gbitmap_create_with_resource(resourceId)
-    let layer = bitmap_layer_create(frame)
+    let bitmap = gbitmap_create_with_resource(resourceId)!
+    let layer = bitmap_layer_create(frame)!
     bitmap_layer_set_bitmap(layer, bitmap)
     bitmap_layer_set_alignment(layer, GAlignCenter)
     layer_add_child(parent, bitmap_layer_get_layer(layer))
+    buildingWindow?.bitmapLayers.append(layer)
+    buildingWindow?.bitmaps.append(bitmap)
   }
 }
 
@@ -214,10 +217,19 @@ public struct Window<Content: PebbleView>: PebbleScene {
   //! onto the window stack. Shared by present() and push().
   @discardableResult
   func realize() -> OpaquePointer? {
-    let window = window_create()
+    let window = window_create()!
     let root = window_get_root_layer(window)
     let bounds = layer_get_bounds(root)
     let lineHeight: Int16 = 28
+
+    // Collect the layers/bitmaps/labels created during layout so they can be
+    // destroyed when this window unloads (popped or app exit).
+    let resources = WindowResources(window: window)
+    windowResources.append(resources)
+    buildingWindow = resources
+    defer { buildingWindow = nil }
+    window_set_window_handlers(window, WindowHandlers(load: nil, appear: nil,
+                                                      disappear: nil, unload: pebbleUIUnload))
 
     let probe = LayoutCtx(origin: GPoint(x: 0, y: 0), cross: bounds.size.w, perItem: 0,
                           axis: .vertical, spacing: 0, lineHeight: lineHeight)
@@ -318,9 +330,50 @@ public struct Label: PebbleView {
     let frame = advance(&ctx, main: main(ctx))
     let layer = text_layer_create(frame)!
     text_layer_set_text_alignment(layer, GTextAlignmentCenter)
-    liveLabels.append(LabelBox(layer: layer, provider: provider))
+    let box = LabelBox(layer: layer, provider: provider)
+    liveLabels.append(box)
+    buildingWindow?.labels.append(box)
+    buildingWindow?.textLayers.append(layer)
     layer_add_child(parent, text_layer_get_layer(layer))
   }
+}
+
+// MARK: - Window resource lifecycle
+//
+// Layers/bitmaps a window creates are destroyed when that window unloads
+// (popped, or app exit), and its Labels are removed from the live set so a
+// later State change can't update a freed layer. Heap-backed (needs the SDK
+// runtime shim).
+
+final class WindowResources {
+  let window: OpaquePointer
+  var textLayers: [OpaquePointer] = []
+  var bitmapLayers: [OpaquePointer] = []
+  var bitmaps: [OpaquePointer] = []
+  var labels: [LabelBox] = []
+  init(window: OpaquePointer) { self.window = window }
+}
+
+// The window currently being laid out; leaf views register what they create.
+var buildingWindow: WindowResources?
+// Live resources per window, freed on unload. A plain array (linear lookup) --
+// not a Dictionary, whose hashing would pull in entropy syscalls the app SDK
+// lacks. There are only a handful of windows on the stack.
+var windowResources: [WindowResources] = []
+
+func destroyWindowResources(_ window: OpaquePointer) {
+  guard let i = windowResources.firstIndex(where: { $0.window == window }) else { return }
+  let res = windowResources.remove(at: i)
+  for box in res.labels {
+    if let j = liveLabels.firstIndex(where: { $0 === box }) { liveLabels.remove(at: j) }
+  }
+  for layer in res.textLayers { text_layer_destroy(layer) }
+  for layer in res.bitmapLayers { bitmap_layer_destroy(layer) }
+  for bitmap in res.bitmaps { gbitmap_destroy(bitmap) }
+}
+
+let pebbleUIUnload: WindowHandler = { window in
+  if let window { destroyWindowResources(window) }
 }
 
 // MARK: - Helpers
