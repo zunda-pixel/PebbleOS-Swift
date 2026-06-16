@@ -101,6 +101,28 @@ public struct Text: PebbleView {
   }
 }
 
+//! A bitmap from an app resource (RESOURCE_ID_*), centered in its slot.
+public struct Image: PebbleView {
+  let resourceId: UInt32
+  let height: Int16
+  public init(_ resourceId: UInt32, height: Int16 = 60) {
+    self.resourceId = resourceId
+    self.height = height
+  }
+  public func count() -> Int16 { 1 }
+  public func main(_ ctx: LayoutCtx) -> Int16 {
+    ctx.axis == .vertical ? height : (ctx.perItem > 0 ? ctx.perItem : ctx.cross)
+  }
+  public func place(_ ctx: inout LayoutCtx, into parent: OpaquePointer?) {
+    let frame = advance(&ctx, main: main(ctx))
+    let bitmap = gbitmap_create_with_resource(resourceId)
+    let layer = bitmap_layer_create(frame)
+    bitmap_layer_set_bitmap(layer, bitmap)
+    bitmap_layer_set_alignment(layer, GAlignCenter)
+    layer_add_child(parent, bitmap_layer_get_layer(layer))
+  }
+}
+
 //! Empty space along the current axis.
 public struct Spacer: PebbleView {
   let size: Int16

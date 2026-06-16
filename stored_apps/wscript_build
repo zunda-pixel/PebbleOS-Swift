@@ -138,6 +138,11 @@ def build_app(bld, app_name):
         bld.add_manual_dependency(swift_obj, message_keys_auto_node)
         bld.add_manual_dependency(swift_obj, resource_ids_auto_node)
         swift_objs = [swift_obj]
+        # Swift heap support (posix_memalign + EABI mem helpers); dropped by
+        # --gc-sections if the app stays heap-free.
+        runtime = bld.path.parent.find_node('sdk/swift/pebble_swift_runtime.c')
+        if runtime is not None:
+            source = source + [runtime]
 
     gen = bld.program(env=stored_apps_env,
                       source=source,
