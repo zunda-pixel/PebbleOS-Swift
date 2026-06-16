@@ -1,0 +1,17 @@
+{
+  "uuid": "f030439a-1daf-4f38-9952-ad273bb0a590",
+  "shortName": "Swift Demo",
+  "longName": "Swift Demo",
+  "companyName": "PebbleOS-Swift",
+  "versionCode": 1.0,
+  "versionLabel": "1.0",
+  "watchapp": {
+    "watchface": false
+  },
+  "appKeys": {
+    "dummy": 0
+  },
+  "resources": {
+    "media": []
+  }
+}
