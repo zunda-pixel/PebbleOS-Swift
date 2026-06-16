@@ -10,13 +10,13 @@
 # required) and Swift can call the firmware API imported from pebble.h.
 
 import os
-import re
 import shutil
 import subprocess
 
 from waflib import Logs, Task
 from waflib.TaskGen import after_method, before_method, feature
 
+from pebble_swift_reloc import scan_unsupported_relocs
 from sdk_helpers import find_sdk_component
 
 SWIFT_TARGET = "armv7em-none-none-eabi"
@@ -71,38 +71,6 @@ class swiftc(Task.Task):
         if self.swift_bridging_header:
             cmd += ["-import-objc-header", self.swift_bridging_header]
         return self.exec_command(cmd)
-
-
-# Absolute relocation types whose target gets the load base added at load time.
-# The Pebble loader only applies those harvested from .rel.data and .got, so any
-# absolute reloc in another loaded section (.text, merged .rodata, ...) would be
-# left pointing at link address 0 -> crash. The linker script merges .data.* and
-# .rodata into .data/.text, so a valid app only has these in .rel.data.
-_ABSOLUTE_RELOCS = ("R_ARM_ABS32", "R_ARM_ABS16", "R_ARM_ABS8", "R_ARM_TARGET1")
-_RELOC_SECTION_RE = re.compile(r"Relocation section '\.rela?(\.[^']*)'")
-
-
-def scan_unsupported_relocs(readelf_output):
-    """Return [(section, type, symbol)] for absolute relocs the loader can't fix."""
-    bad = []
-    target = None
-    for line in readelf_output.splitlines():
-        m = _RELOC_SECTION_RE.search(line)
-        if m:
-            target = m.group(1)
-            continue
-        if target is None:
-            continue
-        if (target == ".data" or target.startswith(".data.")
-                or target.startswith(".debug") or target == ".ARM.attributes"
-                or target == ".comment"):
-            continue
-        for reloc in _ABSOLUTE_RELOCS:
-            if reloc in line:
-                parts = line.split()
-                bad.append((target, reloc, parts[-1] if parts else "?"))
-                break
-    return bad
 
 
 class reloc_check(Task.Task):
