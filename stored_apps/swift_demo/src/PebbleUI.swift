@@ -88,10 +88,17 @@ public struct Text: PebbleView {
 }
 
 //! The root scene: creates a window, lays its content out vertically (centered
-//! as a block), pushes it, and runs the event loop.
+//! as a block), pushes it, and runs the event loop. An optional click config
+//! provider wires up button input (must be a non-capturing @convention(c)
+//! function, so handlers communicate through globals).
 public struct Window<Content: PebbleView>: PebbleScene {
   let content: Content
-  public init(@SceneBuilder _ content: () -> Content) { self.content = content() }
+  let clickProvider: ClickConfigProvider?
+  public init(clicks clickProvider: ClickConfigProvider? = nil,
+              @SceneBuilder _ content: () -> Content) {
+    self.clickProvider = clickProvider
+    self.content = content()
+  }
   public func present() {
     let window = window_create()
     let root = window_get_root_layer(window)
@@ -105,6 +112,9 @@ public struct Window<Content: PebbleView>: PebbleScene {
     var layout = Layout(y: startY, width: bounds.size.w, lineHeight: lineHeight)
     content.render(into: root, &layout)
 
+    if let clickProvider {
+      window_set_click_config_provider(window, clickProvider)
+    }
     window_stack_push(window, true)
     app_event_loop()
     window_destroy(window)
