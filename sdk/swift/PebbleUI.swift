@@ -188,7 +188,10 @@ public struct Window<Content: PebbleView>: PebbleScene {
     self.clickProvider = clickProvider
     self.content = content()
   }
-  public func present() {
+  //! Create the window, lay out the content (centered vertically) and push it
+  //! onto the window stack. Shared by present() and push().
+  @discardableResult
+  func realize() -> OpaquePointer? {
     let window = window_create()
     let root = window_get_root_layer(window)
     let bounds = layer_get_bounds(root)
@@ -207,8 +210,20 @@ public struct Window<Content: PebbleView>: PebbleScene {
       window_set_click_config_provider(window, clickProvider)
     }
     window_stack_push(window, true)
+    return window
+  }
+
+  //! Root entry: push and run the app event loop until the app exits.
+  public func present() {
+    let window = realize()
     app_event_loop()
     window_destroy(window)
+  }
+
+  //! Navigate to this window from within a running app (e.g. a click handler).
+  //! The back button pops it, returning to the previous window.
+  public func push() {
+    realize()
   }
 }
 
