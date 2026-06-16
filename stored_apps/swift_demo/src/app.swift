@@ -30,26 +30,32 @@ private let clickConfig: ClickConfigProvider = { _ in
 //! A text line bound to the counter; captures its layer so the button handlers
 //! can update it in place.
 struct CounterValue: PebbleView {
-  func render(into parent: OpaquePointer?, _ layout: inout Layout) {
-    let frame = GRect(origin: GPoint(x: 0, y: layout.y),
-                      size: GSize(w: layout.width, h: layout.lineHeight))
+  func count() -> Int16 { 1 }
+  func main(_ ctx: LayoutCtx) -> Int16 {
+    ctx.axis == .vertical ? ctx.lineHeight : (ctx.perItem > 0 ? ctx.perItem : ctx.cross)
+  }
+  func place(_ ctx: inout LayoutCtx, into parent: OpaquePointer?) {
+    let frame = advance(&ctx, main: main(ctx))
     let label = text_layer_create(frame)
     sLabel = label
     text_layer_set_text(label, swift_format_int(sCounter))
     text_layer_set_text_alignment(label, GTextAlignmentCenter)
     layer_add_child(parent, text_layer_get_layer(label))
-    layout.y += layout.lineHeight
   }
-  func measure(_ layout: inout Layout) { layout.y += layout.lineHeight }
 }
 
 @main
 struct CounterApp: PebbleApp {
   var body: some PebbleScene {
     Window(clicks: clickConfig) {
-      Text("Swift Counter")
-      CounterValue()
-      Text("Up / Down")
+      VStack(spacing: 6) {
+        Text("Swift Counter")
+        CounterValue()
+        HStack(spacing: 4) {
+          Text("- Dn")
+          Text("Up +")
+        }
+      }
     }
   }
 }
