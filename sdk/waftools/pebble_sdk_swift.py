@@ -10,10 +10,11 @@
 # required) and Swift can call the firmware API imported from pebble.h.
 
 import os
+import re
 import shutil
 import subprocess
 
-from waflib import Task
+from waflib import Logs, Task
 from waflib.TaskGen import after_method, before_method, feature
 
 from sdk_helpers import find_sdk_component
@@ -70,6 +71,62 @@ class swiftc(Task.Task):
         if self.swift_bridging_header:
             cmd += ["-import-objc-header", self.swift_bridging_header]
         return self.exec_command(cmd)
+
+
+# Absolute relocation types whose target gets the load base added at load time.
+# The Pebble loader only applies those harvested from .rel.data and .got, so any
+# absolute reloc in another loaded section (.text, merged .rodata, ...) would be
+# left pointing at link address 0 -> crash. The linker script merges .data.* and
+# .rodata into .data/.text, so a valid app only has these in .rel.data.
+_ABSOLUTE_RELOCS = ("R_ARM_ABS32", "R_ARM_ABS16", "R_ARM_ABS8", "R_ARM_TARGET1")
+_RELOC_SECTION_RE = re.compile(r"Relocation section '\.rela?(\.[^']*)'")
+
+
+def scan_unsupported_relocs(readelf_output):
+    """Return [(section, type, symbol)] for absolute relocs the loader can't fix."""
+    bad = []
+    target = None
+    for line in readelf_output.splitlines():
+        m = _RELOC_SECTION_RE.search(line)
+        if m:
+            target = m.group(1)
+            continue
+        if target is None:
+            continue
+        if (target == ".data" or target.startswith(".data.")
+                or target.startswith(".debug") or target == ".ARM.attributes"
+                or target == ".comment"):
+            continue
+        for reloc in _ABSOLUTE_RELOCS:
+            if reloc in line:
+                parts = line.split()
+                bad.append((target, reloc, parts[-1] if parts else "?"))
+                break
+    return bad
+
+
+class reloc_check(Task.Task):
+    color = "YELLOW"
+
+    def run(self):
+        readelf = shutil.which("arm-none-eabi-readelf")
+        if not readelf:
+            self.outputs[0].write("skipped\n")
+            return 0
+        try:
+            out = subprocess.check_output([readelf, "-r", self.inputs[0].abspath()])
+        except Exception:
+            self.outputs[0].write("skipped\n")
+            return 0
+        bad = scan_unsupported_relocs(out.decode(errors="replace"))
+        if bad:
+            Logs.error("Swift app has absolute relocations the Pebble loader cannot "
+                       "fix up (only .rel.data and .got are applied at load):")
+            for section, reloc, sym in bad[:20]:
+                Logs.error("  {} in {} -> {}".format(reloc, section, sym))
+            return 1
+        self.outputs[0].write("ok\n")
+        return 0
 
 
 @feature("pebble_cprogram")
@@ -139,3 +196,9 @@ def compile_swift_sources(tg):
 
     tg.link_task.inputs.append(swift_obj)
     tg.link_task.set_run_after(task)
+
+    # Build-time guard: fail if the linked app has absolute relocations the
+    # loader can't fix up.
+    stamp = build_node.make_node("swift_reloc.ok")
+    check = tg.create_task("reloc_check", [tg.link_task.outputs[0]], [stamp])
+    check.set_run_after(tg.link_task)
