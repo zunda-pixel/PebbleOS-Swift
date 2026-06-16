@@ -198,6 +198,8 @@ def configure(conf):
     if project_type == "moddable":
         conf.env.BUILD_TYPE = "moddable"
     else:
+        # "swift" apps use the normal native app resource/JS pipeline; Swift
+        # compilation is driven by swift_source in pbl_build (pebble_sdk_swift).
         conf.env.BUILD_TYPE = "app"
 
     if getattr(conf.env.PROJECT_INFO, "enableMultiJS", False):

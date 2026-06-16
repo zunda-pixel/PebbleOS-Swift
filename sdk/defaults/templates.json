@@ -19,6 +19,16 @@
             "src/pkjs/index.js": "app/index.js"
         }
     },
+    "swift": {
+        "default": {
+            "src/swift/app.swift": "swift/src/swift/app.swift",
+            "src/swift/PebbleUI.swift": "swift/src/swift/PebbleUI.swift",
+            "src/swift/bridging.h": "swift/src/swift/bridging.h",
+            "wscript": "swift/wscript",
+            "package.json": "swift/package.json",
+            "resources": null
+        }
+    },
     "lib": {
         "default": {
             "src/c/${project_name}.c": "lib/lib.c",
