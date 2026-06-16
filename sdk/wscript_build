@@ -139,7 +139,7 @@ bld(features='subst',
 
 common_folder_node = bld.path.get_bld().make_node('common')
 common_folder_node.parent.mkdir()
-for sdk_file in bld.path.ant_glob(['include/*', 'pebble_app.ld.template']):
+for sdk_file in bld.path.ant_glob(['include/*', 'pebble_app.ld.template', 'swift/*']):
     bld(rule=COPY,
         source=sdk_file,
         target=common_folder_node.make_node(sdk_file.path_from(bld.path)))

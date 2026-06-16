@@ -80,19 +80,32 @@ def compile_swift_sources(tg):
     if not swift_source:
         return
     nodes = tg.to_nodes(swift_source)
+
+    bld = tg.bld
+
+    # Compile the SDK-shipped PebbleUI framework together with the app's own
+    # Swift sources (whole-module). PebbleUI is owned by the SDK -- there is no
+    # per-project copy.
+    pebble_ui = find_sdk_component(bld, tg.env, "swift/PebbleUI.swift")
+    if pebble_ui is not None:
+        nodes = [pebble_ui] + nodes
     if not nodes:
         return
 
-    bld = tg.bld
     build_node = tg.path.get_bld().make_node(tg.env.BUILD_DIR)  # build/<platform>
     swift_obj = build_node.make_node("swift_app.o")
 
     task = tg.create_task("swiftc", nodes, [swift_obj])
 
+    # App-provided bridging header, else the SDK default (#include <pebble.h>).
     bridging = getattr(tg, "swift_bridging_header", None)
-    task.swift_bridging_header = (
-        bld.path.find_node(bridging).abspath() if bridging else None
-    )
+    if bridging:
+        task.swift_bridging_header = bld.path.find_node(bridging).abspath()
+    else:
+        default_bridging = find_sdk_component(bld, tg.env, "swift/bridging.h")
+        task.swift_bridging_header = (
+            default_bridging.abspath() if default_bridging else None
+        )
 
     # SDK platform headers + the build dirs holding the generated headers that
     # pebble.h pulls in (message_keys.auto.h, src/resource_ids.auto.h).

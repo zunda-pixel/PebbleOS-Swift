@@ -116,12 +116,16 @@ def build_app(bld, app_name):
     platform_defines = platform_info['DEFINES']
     c_flags = ['-fPIE'] + ['-D%s' % define for define in platform_defines]
 
-    # Compile any Embedded Swift sources to a single object (whole-module).
+    # Compile any Embedded Swift sources to a single object (whole-module),
+    # together with the SDK-shipped PebbleUI framework (single source of truth,
+    # shared with the SDK app build -- no per-project copy).
     swift_sources = bld.path.ant_glob('%s/src/**/*.swift' % (app_name))
     swift_objs = []
     if swift_sources:
+        pebble_ui = bld.path.parent.find_node('sdk/swift/PebbleUI.swift')
+        all_swift = ([pebble_ui] if pebble_ui is not None else []) + swift_sources
         swift_obj = bld.path.get_bld().make_node('%s/swift_%s.o' % (app_name, app_name))
-        swift_tg = bld(rule=_swiftc_compile, source=swift_sources, target=swift_obj,
+        swift_tg = bld(rule=_swiftc_compile, source=all_swift, target=swift_obj,
                        env=stored_apps_env)
         # SDK headers + the app build dir holding the generated *.auto.h that
         # pebble.h pulls in (message_keys.auto.h, src/resource_ids.auto.h).

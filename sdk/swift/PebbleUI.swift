@@ -1,30 +1,28 @@
 // SPDX-License-Identifier: Apache-2.0
 //
-// A tiny SwiftUI-like declarative layer over the Pebble C API, written in
-// Embedded Swift. Everything is value types + static generic specialization:
-// Embedded Swift has no existentials (`any`), no runtime casts, and cannot call
-// a protocol method across a parameter pack, so view composition uses
-// fixed-arity result-builder overloads that nest into `Pair`, and measurement
-// is a plain protocol requirement (statically dispatched) rather than a cast.
+// PebbleUI: a tiny SwiftUI-like declarative layer over the Pebble C API, in
+// Embedded Swift. Shipped by the SDK (build/sdk/common/swift) and compiled
+// together with the app's own Swift sources -- there is no per-project copy.
+//
+// Everything is value types + static generic specialization: Embedded Swift
+// has no existentials (`any`), no runtime casts, and cannot call a protocol
+// method across a parameter pack, so view composition uses fixed-arity
+// result-builder overloads nesting into `Pair`, and measurement is a plain
+// (statically dispatched) protocol requirement.
 
-// MARK: - Core protocols
+// MARK: - Core
 
-//! Vertical stacking cursor handed down while views render.
 public struct Layout {
   public var y: Int16
   public let width: Int16
   public let lineHeight: Int16
 }
 
-//! A leaf or container that lays itself out vertically into a layer.
 public protocol PebbleView {
   func render(into parent: OpaquePointer?, _ layout: inout Layout)
-  //! Advance the cursor exactly as render would, without creating layers, so a
-  //! container can measure its content block (e.g. to center it).
   func measure(_ layout: inout Layout)
 }
 
-//! A top-level scene that owns a window and runs the app event loop.
 public protocol PebbleScene {
   func present()
 }
@@ -36,7 +34,6 @@ public struct EmptyView: PebbleView {
   public func measure(_ layout: inout Layout) {}
 }
 
-//! Two stacked views; nesting Pairs gives arbitrary arity without packs.
 public struct Pair<A: PebbleView, B: PebbleView>: PebbleView {
   let a: A
   let b: B
@@ -68,8 +65,6 @@ public enum SceneBuilder {
 
 // MARK: - Views
 
-//! A line of text. The literal lives in rodata so its pointer outlives the
-//! text_layer_set_text call (which stores, not copies, it).
 public struct Text: PebbleView {
   let text: StaticString
   public init(_ text: StaticString) { self.text = text }
@@ -87,10 +82,6 @@ public struct Text: PebbleView {
   }
 }
 
-//! The root scene: creates a window, lays its content out vertically (centered
-//! as a block), pushes it, and runs the event loop. An optional click config
-//! provider wires up button input (must be a non-capturing @convention(c)
-//! function, so handlers communicate through globals).
 public struct Window<Content: PebbleView>: PebbleScene {
   let content: Content
   let clickProvider: ClickConfigProvider?
@@ -138,6 +129,6 @@ public extension PebbleApp {
 // MARK: - Helpers
 
 @inline(__always)
-func cString(_ s: StaticString) -> UnsafePointer<CChar> {
+public func cString(_ s: StaticString) -> UnsafePointer<CChar> {
   UnsafeRawPointer(s.utf8Start).assumingMemoryBound(to: CChar.self)
 }
