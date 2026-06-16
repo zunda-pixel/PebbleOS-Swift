@@ -1,5 +1,11 @@
+import os
+import shutil
+import subprocess
+
 import waftools.objcopy as objcopy
 import waftools.pebble_sdk_gcc as pebble_sdk_gcc
+
+from waflib.TaskGen import feature, after_method
 
 from resources.types.resource_definition import ResourceDefinition
 from resources.types.resource_object import ResourceObject
@@ -11,6 +17,58 @@ import generate_appinfo
 #
 # Make each of the apps within the stored_apps directory
 #
+
+# Embedded Swift toolchain settings. Apps share the C app ABI (cortex-m3,
+# soft-float, -fPIE), so Swift is compiled freestanding with no runtime; its
+# relocations land in .got/.rel.data, which the app loader fixes up. The Swift
+# object is appended to the C link below.
+SWIFT_TARGET = 'armv7em-none-none-eabi'
+SWIFT_FLAGS = [
+    '-enable-experimental-feature', 'Embedded',
+    '-wmo', '-Osize',
+    '-parse-as-library',                       # no implicit Swift main(); C owns it
+    '-Xfrontend', '-function-sections',        # let --gc-sections drop unused runtime
+    '-Xfrontend', '-disable-stack-protector',  # avoid __stack_chk_* (unavailable)
+]
+
+
+def _swiftc_compile(task):
+    gen = task.generator
+    swiftc = shutil.which('swiftc')
+    if not swiftc:
+        gen.bld.fatal('swiftc not found on PATH (required for Swift stored apps)')
+    cmd = ([swiftc, '-c'] + [s.abspath() for s in task.inputs] +
+           ['-o', task.outputs[0].abspath(), '-target', SWIFT_TARGET] + SWIFT_FLAGS)
+    # Match the firmware's variable-size enum ABI for imported C enums.
+    cmd += ['-Xcc', '-fshort-enums']
+    # Match the SDK app ABI: 32-bit time_t, and suppress newlib's <time.h>
+    # (define its include guard) so pebble.h's own struct tm is used without a
+    # redefinition clash -- exactly what the C stored-app build does.
+    cmd += ['-Xcc', '-D_TIME_H_', '-Xcc', '-Dtime_t=long']
+    # newlib headers for the other libc includes pebble.h pulls in
+    # (locale.h/stdio.h/string.h/stdlib.h).
+    gcc = shutil.which('arm-none-eabi-gcc')
+    if gcc:
+        sysroot = subprocess.check_output([gcc, '-print-sysroot']).decode().strip()
+        if sysroot:
+            cmd += ['-Xcc', '-isystem', '-Xcc', os.path.join(sysroot, 'include')]
+    # SDK include paths so the bridging header can find pebble.h.
+    for inc in getattr(gen, 'swift_includes', []):
+        cmd += ['-Xcc', '-I' + inc]
+    # Optional bridging header exposing the Pebble C API to Swift.
+    bridging = getattr(gen, 'swift_bridging_header', None)
+    if bridging:
+        cmd += ['-import-objc-header', bridging]
+    return task.exec_command(cmd)
+
+
+@feature('c', 'cprogram')
+@after_method('apply_link')
+def add_swift_objects(self):
+    # Append pre-built Swift objects to the C program's link task so they are
+    # linked (and the link waits on them) without a separate static library.
+    for obj in getattr(self, 'swift_objs', []):
+        self.link_task.inputs.append(obj)
 
 
 # -----------------------------------------------------------------------------------
@@ -58,6 +116,25 @@ def build_app(bld, app_name):
     platform_defines = platform_info['DEFINES']
     c_flags = ['-fPIE'] + ['-D%s' % define for define in platform_defines]
 
+    # Compile any Embedded Swift sources to a single object (whole-module).
+    swift_sources = bld.path.ant_glob('%s/src/**/*.swift' % (app_name))
+    swift_objs = []
+    if swift_sources:
+        swift_obj = bld.path.get_bld().make_node('%s/swift_%s.o' % (app_name, app_name))
+        swift_tg = bld(rule=_swiftc_compile, source=swift_sources, target=swift_obj,
+                       env=stored_apps_env)
+        # SDK headers + the app build dir holding the generated *.auto.h that
+        # pebble.h pulls in (message_keys.auto.h, src/resource_ids.auto.h).
+        swift_tg.swift_includes = [sdk_folder.make_node('include').abspath(),
+                                   bld.path.get_bld().make_node(app_name).abspath()]
+        bridging_node = bld.path.get_src().find_node('%s/src/bridging.h' % (app_name))
+        if bridging_node is not None:
+            swift_tg.swift_bridging_header = bridging_node.abspath()
+        # Ensure the generated headers exist before the Swift importer runs.
+        bld.add_manual_dependency(swift_obj, message_keys_auto_node)
+        bld.add_manual_dependency(swift_obj, resource_ids_auto_node)
+        swift_objs = [swift_obj]
+
     gen = bld.program(env=stored_apps_env,
                       source=source,
                       target=app_elf_file,
@@ -66,7 +143,8 @@ def build_app(bld, app_name):
                       ldscript=ld_script,
                       linkflags=link_flags,
                       stlibpath=[sdk_folder.make_node('lib').abspath()],
-                      stlib=['pebble'])
+                      stlib=['pebble'],
+                      swift_objs=swift_objs)
 
 
     # -----------------------------------------------------------------------------------
