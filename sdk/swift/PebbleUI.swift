@@ -224,6 +224,68 @@ public extension PebbleApp {
   }
 }
 
+// MARK: - Reactive state
+//
+// Heap-backed (needs the SDK runtime shim). Apps that don't use State/Label
+// stay heap-free: this code is dropped by --gc-sections when unreferenced.
+
+//! Observable value. Mutating it refreshes every Label currently on screen.
+public final class State<Value> {
+  public var value: Value {
+    didSet { refreshLabels() }
+  }
+  public init(_ value: Value) { self.value = value }
+}
+
+//! A Label keeps its own text_layer + a heap buffer and updates in place when
+//! state changes (no full re-render), so static Text views are untouched.
+final class LabelBox {
+  let layer: OpaquePointer
+  let provider: () -> String
+  let buf: UnsafeMutablePointer<CChar>
+  let cap: Int
+  init(layer: OpaquePointer, provider: @escaping () -> String, cap: Int = 64) {
+    self.layer = layer
+    self.provider = provider
+    self.cap = cap
+    self.buf = UnsafeMutablePointer<CChar>.allocate(capacity: cap)
+    update()
+  }
+  deinit { buf.deallocate() }
+  func update() {
+    var i = 0
+    for byte in provider().utf8 where i < cap - 1 {
+      buf[i] = CChar(bitPattern: byte)
+      i += 1
+    }
+    buf[i] = 0
+    text_layer_set_text(layer, UnsafePointer(buf))
+  }
+}
+
+var liveLabels: [LabelBox] = []
+
+func refreshLabels() {
+  for box in liveLabels { box.update() }
+}
+
+//! A text view bound to dynamic state; re-evaluated whenever a State changes.
+public struct Label: PebbleView {
+  let provider: () -> String
+  public init(_ provider: @escaping () -> String) { self.provider = provider }
+  public func count() -> Int16 { 1 }
+  public func main(_ ctx: LayoutCtx) -> Int16 {
+    ctx.axis == .vertical ? ctx.lineHeight : (ctx.perItem > 0 ? ctx.perItem : ctx.cross)
+  }
+  public func place(_ ctx: inout LayoutCtx, into parent: OpaquePointer?) {
+    let frame = advance(&ctx, main: main(ctx))
+    let layer = text_layer_create(frame)!
+    text_layer_set_text_alignment(layer, GTextAlignmentCenter)
+    liveLabels.append(LabelBox(layer: layer, provider: provider))
+    layer_add_child(parent, text_layer_get_layer(layer))
+  }
+}
+
 // MARK: - Helpers
 
 @inline(__always)

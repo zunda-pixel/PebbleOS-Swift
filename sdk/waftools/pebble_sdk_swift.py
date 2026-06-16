@@ -14,7 +14,7 @@ import shutil
 import subprocess
 
 from waflib import Task
-from waflib.TaskGen import after_method, feature
+from waflib.TaskGen import after_method, before_method, feature
 
 from sdk_helpers import find_sdk_component
 
@@ -70,6 +70,21 @@ class swiftc(Task.Task):
         if self.swift_bridging_header:
             cmd += ["-import-objc-header", self.swift_bridging_header]
         return self.exec_command(cmd)
+
+
+@feature("pebble_cprogram")
+@before_method("process_source")
+def add_swift_runtime(tg):
+    """Add the SDK C runtime shim (posix_memalign + EABI mem helpers) so Swift
+    heap types work. Unused functions are dropped by --gc-sections."""
+    if not getattr(tg, "swift_source", None):
+        return
+    runtime = find_sdk_component(tg.bld, tg.env, "swift/pebble_swift_runtime.c")
+    if runtime is None:
+        return
+    src = tg.to_nodes(getattr(tg, "source", []))
+    src.append(runtime)
+    tg.source = src
 
 
 @feature("pebble_cprogram")
