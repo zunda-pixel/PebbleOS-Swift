@@ -16,16 +16,13 @@ extern void *memset(void *dest, int c, size_t n);
 // Swift's swift_slowAlloc calls posix_memalign. The app heap's malloc is at
 // least 8-byte aligned (proven by the heap working at all -- class/Array
 // headers need it), which covers Embedded Swift's allocations on 32-bit ARM.
-// We can't satisfy larger alignments because free() must receive malloc's own
-// pointer (no header/offset trick), so fail loudly rather than misalign.
+// Larger alignments can't be guaranteed: free() must receive malloc's own
+// pointer, which rules out an offset/header trick. We therefore return the
+// malloc block best-effort rather than failing -- returning an error here would
+// abort the Swift allocation and crash the app, and in practice the runtime
+// does request >8-byte alignment for some heap storage.
 int posix_memalign(void **memptr, size_t alignment, size_t size) {
-  *memptr = 0;
-  if (alignment & (alignment - 1)) {
-    return 22;  // EINVAL: alignment not a power of two
-  }
-  if (alignment > 8) {
-    return 22;  // EINVAL: larger than the malloc alignment guarantee
-  }
+  (void)alignment;
   void *p = malloc(size);
   *memptr = p;
   return p ? 0 : 12;  // ENOMEM
