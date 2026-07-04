@@ -45,10 +45,10 @@
 
 #include "drivers/qemu/qemu_serial.h"
 #include "drivers/rtc.h"
-#include "os/mutex.h"
+#include "pbl/os/mutex.h"
 #include "system/logging.h"
 #include "system/passert.h"
-#include "util/math.h"
+#include "pbl/util/math.h"
 #include "util/net.h"
 
 #include <string.h>
@@ -197,12 +197,6 @@ void accel_init(void) {
   s_timer_id = new_timer_create();
 }
 
-void accel_power_up(void) {
-}
-
-void accel_power_down(void) {
-}
-
 uint32_t accel_set_sampling_interval(uint32_t interval_us) {
   mutex_lock(s_accel_mutex);
   {
@@ -219,6 +213,11 @@ uint32_t accel_set_sampling_interval(uint32_t interval_us) {
 
 uint32_t accel_get_sampling_interval(void) {
   return s_sampling_interval_ms * 1000;
+}
+
+
+uint32_t accel_get_max_num_samples(void) {
+  return QEMU_ACCEL_RCV_BUFFER_SAMPLES;
 }
 
 

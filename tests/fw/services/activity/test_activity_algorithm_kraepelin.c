@@ -16,8 +16,8 @@
 #include "pbl/services/filesystem/pfs.h"
 #include "pbl/services/settings/settings_file.h"
 #include "pbl/services/system_task.h"
-#include "util/math.h"
-#include "util/size.h"
+#include "pbl/util/math.h"
+#include "pbl/util/size.h"
 
 #include <stdint.h>
 #include <string.h>
@@ -79,7 +79,7 @@ static struct tm s_start_time_tm = {
 
 // ============================================================================================
 // Misc stubs
-uint32_t ambient_light_get_light_level(void) {
+uint32_t light_get_ambient_lux(void) {
   return s_alg_next_light << 4;
 }
 

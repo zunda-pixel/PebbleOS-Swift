@@ -6,7 +6,7 @@
 #include "pbl/services/blob_db/sync_util.h"
 #include "pbl/services/blob_db/timeline_item_storage.h"
 
-#include "util/uuid.h"
+#include "pbl/util/uuid.h"
 #include "kernel/pbl_malloc.h"
 #include "pbl/services/analytics/analytics.h"
 #include "pbl/services/timeline/reminders.h"
@@ -153,7 +153,7 @@ static status_t prv_insert_reminder(const uint8_t *key, int key_len,
 
   char uuid_buffer[UUID_STRING_BUFFER_LENGTH];
   uuid_to_string((Uuid *)key, uuid_buffer);
-  PBL_LOG_INFO("Reminder added: %s", uuid_buffer);
+  PBL_LOG_DBG("Reminder added: %s", uuid_buffer);
 
   if (rv == S_SUCCESS) {
     if (has_reminded) {

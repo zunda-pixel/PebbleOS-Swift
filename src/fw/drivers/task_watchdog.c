@@ -3,12 +3,11 @@
 
 #include "drivers/task_watchdog.h"
 
-#include "drivers/periph_config.h"
 #include "drivers/watchdog.h"
 #include "kernel/core_dump.h"
 #include "kernel/event_loop.h"
 #include "kernel/pebble_tasks.h"
-#include "os/mutex.h"
+#include "pbl/os/mutex.h"
 #include "process_management/app_manager.h"
 #include "pbl/services/new_timer/new_timer.h"
 #include "pbl/services/system_task.h"
@@ -16,7 +15,7 @@
 #include "system/die.h"
 #include "system/logging.h"
 #include "system/passert.h"
-#include "util/size.h"
+#include "pbl/util/size.h"
 
 #include "FreeRTOS.h"
 #include "task.h"
@@ -177,7 +176,7 @@ static void prv_app_task_throttle_start(void) {
   // once to aid in debug
   if (strcmp(last_throttled_task, curr_task) != 0) {
     strcpy(last_throttled_task, curr_task);
-    PBL_LOG_INFO("Starting App Throttling for %s", curr_task);
+    PBL_LOG_WRN("Starting App Throttling for %s", curr_task);
   } else {
     PBL_LOG_DBG("Starting App Throttling for %s", curr_task);
   }

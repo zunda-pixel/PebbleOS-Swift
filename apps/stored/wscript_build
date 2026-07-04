@@ -1,0 +1,205 @@
+import os
+import shutil
+import subprocess
+
+import tools.waf.objcopy as objcopy
+import tools.waf.pebble_sdk_gcc as pebble_sdk_gcc
+
+from waflib.TaskGen import feature, after_method
+
+from resources.types.resource_definition import ResourceDefinition
+from resources.types.resource_object import ResourceObject
+
+from pebble_sdk_platform import pebble_platforms
+
+import generate_appinfo
+
+#
+# Make each of the apps within the stored_apps directory
+#
+
+# Embedded Swift toolchain settings. Apps share the C app ABI (cortex-m3,
+# soft-float, -fPIE), so Swift is compiled freestanding with no runtime; its
+# relocations land in .got/.rel.data, which the app loader fixes up. The Swift
+# object is appended to the C link below.
+SWIFT_TARGET = 'armv7em-none-none-eabi'
+SWIFT_FLAGS = [
+    '-enable-experimental-feature', 'Embedded',
+    '-wmo', '-Osize',
+    '-parse-as-library',                       # no implicit Swift main(); C owns it
+    '-Xfrontend', '-function-sections',        # let --gc-sections drop unused runtime
+    '-Xfrontend', '-disable-stack-protector',  # avoid __stack_chk_* (unavailable)
+]
+
+
+def _swiftc_compile(task):
+    gen = task.generator
+    swiftc = shutil.which('swiftc')
+    if not swiftc:
+        gen.bld.fatal('swiftc not found on PATH (required for Swift stored apps)')
+    cmd = ([swiftc, '-c'] + [s.abspath() for s in task.inputs] +
+           ['-o', task.outputs[0].abspath(), '-target', SWIFT_TARGET] + SWIFT_FLAGS)
+    # Match the firmware's variable-size enum ABI for imported C enums.
+    cmd += ['-Xcc', '-fshort-enums']
+    # Match the SDK app ABI: 32-bit time_t, and suppress newlib's <time.h>
+    # (define its include guard) so pebble.h's own struct tm is used without a
+    # redefinition clash -- exactly what the C stored-app build does.
+    cmd += ['-Xcc', '-D_TIME_H_', '-Xcc', '-Dtime_t=long']
+    # newlib headers for the other libc includes pebble.h pulls in
+    # (locale.h/stdio.h/string.h/stdlib.h).
+    gcc = shutil.which('arm-none-eabi-gcc')
+    if gcc:
+        sysroot = subprocess.check_output([gcc, '-print-sysroot']).decode().strip()
+        if sysroot:
+            cmd += ['-Xcc', '-isystem', '-Xcc', os.path.join(sysroot, 'include')]
+    # SDK include paths so the bridging header can find pebble.h.
+    for inc in getattr(gen, 'swift_includes', []):
+        cmd += ['-Xcc', '-I' + inc]
+    # Optional bridging header exposing the Pebble C API to Swift.
+    bridging = getattr(gen, 'swift_bridging_header', None)
+    if bridging:
+        cmd += ['-import-objc-header', bridging]
+    return task.exec_command(cmd)
+
+
+@feature('c', 'cprogram')
+@after_method('apply_link')
+def add_swift_objects(self):
+    # Append pre-built Swift objects to the C program's link task so they are
+    # linked (and the link waits on them) without a separate static library.
+    for obj in getattr(self, 'swift_objs', []):
+        self.link_task.inputs.append(obj)
+
+
+# -----------------------------------------------------------------------------------
+def build_app(bld, app_name):
+    sdk_folder = bld.bldnode.make_node('sdk').make_node(bld.env.PLATFORM_NAME)
+
+    # -----------------------------------------------------------------------------------
+    # Generate the appinfo.auto.c file
+    appinfo_json_node = bld.path.get_src().find_node('%s/appinfo.json' % (app_name))
+    if appinfo_json_node is None:
+        bld.fatal('Could not find appinfo.json')
+    appinfo_c_node = bld.path.get_bld().make_node('%s/appinfo.auto.c' % (app_name))
+
+    resource_ids_auto_node = bld.path.get_bld().make_node(
+                                '%s/src/resource_ids.auto.h' % (app_name))
+    bld(rule='echo "#define DEFAULT_MENU_ICON  0" >> ${TGT}', target=resource_ids_auto_node)
+
+    message_keys_auto_node = bld.path.get_bld().make_node(app_name).make_node("message_keys.auto.h")
+    bld(rule='touch ${TGT}', target=message_keys_auto_node)
+
+    def _generate_appinfo_c_file_rule(task):
+        generate_appinfo.generate_appinfo(task.inputs[0].abspath(), task.outputs[0].abspath())
+
+    bld(rule=_generate_appinfo_c_file_rule,
+        source=appinfo_json_node,
+        target=appinfo_c_node)
+
+
+    # -----------------------------------------------------------------------------------
+    # Generate the rule to compile and link the sources into an ELF
+    includes = [sdk_folder.make_node('include'), app_name, '%s/src' % (app_name)]
+    link_flags = ['-mcpu=cortex-m3','-mthumb','-fPIE', '-Wl,--emit-relocs', '-Wl,--gc-sections']
+    source = bld.path.ant_glob('%s/src/**/*.c' % (app_name)) + [appinfo_c_node]
+    ld_script = bld.path.make_node('pebble_app.ld').path_from(bld.path)
+    app_elf_file = bld.path.get_bld().make_node('%s/pebble-app.elf' % (app_name))
+
+    stored_apps_env = bld.all_envs['stored_apps']
+
+    # Fetch platform-specific defines and add them to CFLAGS
+    platform_name = stored_apps_env['PLATFORM_NAME']
+    platform_info = pebble_platforms.get(platform_name, None)
+    if platform_info is None:
+        bld.fatal("Unsupported platform: %s" % platform_name)
+
+    platform_defines = platform_info['DEFINES']
+    c_flags = ['-fPIE'] + ['-D%s' % define for define in platform_defines]
+
+    # Compile any Embedded Swift sources to a single object (whole-module),
+    # together with the SDK-shipped PebbleUI framework (single source of truth,
+    # shared with the SDK app build -- no per-project copy).
+    swift_sources = bld.path.ant_glob('%s/src/**/*.swift' % (app_name))
+    swift_objs = []
+    if swift_sources:
+        pebble_ui = bld.srcnode.find_node('sdk/swift/PebbleUI.swift')
+        all_swift = ([pebble_ui] if pebble_ui is not None else []) + swift_sources
+        swift_obj = bld.path.get_bld().make_node('%s/swift_%s.o' % (app_name, app_name))
+        swift_tg = bld(rule=_swiftc_compile, source=all_swift, target=swift_obj,
+                       env=stored_apps_env)
+        # SDK headers + the app build dir holding the generated *.auto.h that
+        # pebble.h pulls in (message_keys.auto.h, src/resource_ids.auto.h).
+        swift_tg.swift_includes = [sdk_folder.make_node('include').abspath(),
+                                   bld.path.get_bld().make_node(app_name).abspath()]
+        bridging_node = bld.path.get_src().find_node('%s/src/bridging.h' % (app_name))
+        if bridging_node is not None:
+            swift_tg.swift_bridging_header = bridging_node.abspath()
+            bld.add_manual_dependency(swift_obj, bridging_node)
+        # Ensure the generated headers exist before the Swift importer runs.
+        bld.add_manual_dependency(swift_obj, message_keys_auto_node)
+        bld.add_manual_dependency(swift_obj, resource_ids_auto_node)
+        swift_objs = [swift_obj]
+        # Swift heap support (posix_memalign + EABI mem helpers); dropped by
+        # --gc-sections if the app stays heap-free.
+        runtime = bld.srcnode.find_node('sdk/swift/pebble_swift_runtime.c')
+        if runtime is not None:
+            source = source + [runtime]
+
+    gen = bld.program(env=stored_apps_env,
+                      source=source,
+                      target=app_elf_file,
+                      includes=includes,
+                      cflags=c_flags,
+                      ldscript=ld_script,
+                      linkflags=link_flags,
+                      stlibpath=[sdk_folder.make_node('lib').abspath()],
+                      stlib=['pebble'],
+                      swift_objs=swift_objs)
+
+
+    # -----------------------------------------------------------------------------------
+    # Create the bin file and inject the metadata
+    app_raw_bin_file = bld.path.get_bld().make_node('%s/pebble-app.raw.bin' % (app_name))
+    bld(rule=objcopy.objcopy_bin, source=app_elf_file, target=app_raw_bin_file)
+
+    app_bin_file = bld.path.get_bld().make_node('%s/pebble-app.bin' % (app_name))
+    # Use a dummy timestamp for the metadata in stored_apps. This timestamp is only used
+    # to describe the resource version, and stored_apps have no resources. If we use the
+    # real timestamp that will cause the CRC of the app to change from build to build,
+    # which causes the pbpack's CRC to change from build to build, which means we have to
+    # keep using image_resources in development every time we rebuild, even though the
+    # content didn't change.
+    pebble_sdk_gcc.gen_inject_metadata_rule(bld, src_bin_file=app_raw_bin_file,
+                                            dst_bin_file=app_bin_file, elf_file=app_elf_file,
+                                            resource_file=None, timestamp=0, has_pkjs=False,
+                                            has_worker=False)
+
+    # -----------------------------------------------------------------------------------
+    # Copy into the resources directory as a .reso file
+    def _make_reso(task):
+        app_bin_data = task.inputs[0].read(flags='rb')
+
+        reso = ResourceObject(
+                ResourceDefinition('raw', 'STORED_APP_{}'.format(app_name.upper()), None),
+                app_bin_data)
+        reso.dump(task.outputs[0])
+
+    resources_bld_node = bld.bldnode.make_node('resources/')
+    app_resource_node = resources_bld_node.make_node('normal/base/raw/app_%s.bin.reso' % (app_name))
+    bld(rule=_make_reso, source=app_bin_file, target=app_resource_node, name='stored_app_reso')
+
+    bld.DYNAMIC_RESOURCES.append(app_resource_node)
+
+
+# -----------------------------------------------------------------------------------
+# When you add a new stored app, you must also do the following to include it into the
+# system resources and register it with the launcher:
+#  1.) Add a raw resource entry with a  name  of "STORED_APP_<appname>" to
+#      resources/normal/resource_map.json.
+#      The "file" field should be set to normal/raw/app_<appname>.bin
+#  2.) Add a new entry to the INIT_STORED_APPS array in system_app_registry.h
+apps = bld.path.ant_glob('*', dir=True, src=False)
+for app in apps:
+    build_app(bld, app.name)
+
+# vim:filetype=python

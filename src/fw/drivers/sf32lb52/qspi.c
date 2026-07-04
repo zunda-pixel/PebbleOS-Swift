@@ -7,10 +7,10 @@
 #include "drivers/flash/qspi_flash_part_definitions.h"
 #include "flash_region/flash_region.h"
 #include "kernel/pbl_malloc.h"
-#include "mcu/cache.h"
+#include "pbl/mcu/cache.h"
 #include "system/passert.h"
 #include "system/status_codes.h"
-#include "util/math.h"
+#include "pbl/util/math.h"
 
 #define SEC_ADDR_TO_IDX(addr) (((addr) >> 12U) - 1U)
 
@@ -170,7 +170,7 @@ bool qspi_flash_check_whoami(QSPIFlash *dev) {
   uint32_t id = ctx->dev_id;
 
   if (id == dev->state->part->qspi_id_value) {
-    PBL_LOG_INFO("Flash is %s", dev->state->part->name);
+    PBL_LOG_DBG("Flash is %s", dev->state->part->name);
     return true;
   } else {
     PBL_LOG_ERR("Flash isn't expected %s (whoami: 0x%" PRIx32 ")",

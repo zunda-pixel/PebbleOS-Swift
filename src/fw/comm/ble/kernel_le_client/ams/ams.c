@@ -20,10 +20,10 @@
 #include "system/logging.h"
 #include "system/hexdump.h"
 #include "system/passert.h"
-#include "util/likely.h"
+#include "pbl/util/likely.h"
 #include "util/time/time.h"
 
-#include <btutil/bt_device.h>
+#include <pbl/btutil/bt_device.h>
 
 #include <string.h>
 
@@ -602,7 +602,7 @@ void ams_handle_subscribe(BLECharacteristic subscribed_characteristic,
     PBL_LOG_ERR("Failed to subscribe AMS");
     return;
   }
-  PBL_LOG_INFO("Hurray! AMS subscribed");
+  PBL_LOG_INFO("AMS subscribed");
   if (!prv_set_connected(true)) {
     PBL_LOG_ERR("Another music service was already connected. Aborting AMS setup.");
     return;

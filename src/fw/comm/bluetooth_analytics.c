@@ -11,7 +11,7 @@
 #include "pbl/services/comm_session/session.h"
 #include "system/logging.h"
 #include "util/bitset.h"
-#include "util/math.h"
+#include "pbl/util/math.h"
 
 #include <bluetooth/analytics.h>
 #include <bluetooth/gap_le_connect.h>
@@ -123,11 +123,6 @@ void bluetooth_analytics_handle_ble_pairing_request(void) {
 
 void bluetooth_analytics_handle_ble_pairing_error(uint32_t error) {
 }
-
-void bluetooth_analytics_ble_mic_error(uint32_t num_sequential_mic_errors) {
-  PBL_LOG_INFO("MIC Error detected ... %"PRIu32" packets", num_sequential_mic_errors);
-}
-
 
 static bool prv_calc_stats_and_print(const SlaveConnEventStats *orig_stats,
                                            SlaveConnEventStats *stats_buf, bool is_putbytes) {

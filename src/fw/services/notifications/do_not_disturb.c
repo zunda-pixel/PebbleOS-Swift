@@ -29,8 +29,8 @@
 #include "syscall/syscall_internal.h"
 #include "system/logging.h"
 #include "system/passert.h"
-#include "util/list.h"
-#include "util/math.h"
+#include "pbl/util/list.h"
+#include "pbl/util/math.h"
 #include "util/time/time.h"
 
 #include <stdbool.h>
@@ -79,7 +79,7 @@ static void prv_do_update(void) {
     return;
   }
   s_data.was_active = is_active;
-  PBL_LOG_INFO("Quiet Time: %s", prv_bool_to_string(is_active));
+  PBL_LOG_DBG("Quiet Time: %s", prv_bool_to_string(is_active));
 
   prv_update_active_time(is_active);
   prv_put_dnd_event(is_active);

@@ -14,8 +14,8 @@
 #include "system/logging.h"
 #include "system/passert.h"
 #include "pbl/services/system_task.h"
-#include "util/list.h"
-#include "util/size.h"
+#include "pbl/util/list.h"
+#include "pbl/util/size.h"
 
 #include <string.h>
 
@@ -65,8 +65,8 @@ static const char *s_syncable_settings[] = {
   "lightTouch",
   "lightAmbientThreshold",
 #ifdef CONFIG_DYNAMIC_BACKLIGHT
-  "lightDynamicIntensity",
-  "dynBacklightMinThreshold",
+  "lightDynamicMode",
+  "lightPreset",
 #endif
 #ifdef CONFIG_BACKLIGHT_HAS_COLOR
   "lightColor",
@@ -278,7 +278,7 @@ void settings_blob_db_init(void) {
   settings_file_set_change_callback(prv_settings_change_callback);
 
   s_initialized = true;
-  PBL_LOG_INFO("Settings BlobDB initialized (%u whitelisted settings)",
+  PBL_LOG_DBG("Settings BlobDB initialized (%u whitelisted settings)",
           (unsigned int) s_num_syncable_settings);
 }
 

@@ -23,7 +23,6 @@
 
 #include "drivers/flash.h"
 #include "drivers/mpu.h"
-#include "drivers/spi.h"
 #include "drivers/watchdog.h"
 #include "drivers/rtc.h"
 
@@ -40,12 +39,12 @@
 #include "system/logging.h"
 #include "system/version.h"
 
-#include "util/attributes.h"
-#include "util/build_id.h"
-#include "util/math.h"
+#include "pbl/util/attributes.h"
+#include "pbl/util/build_id.h"
+#include "pbl/util/math.h"
 #include "util/net.h"
-#include "util/size.h"
-#include "util/string.h"
+#include "pbl/util/size.h"
+#include "pbl/util/string.h"
 
 #include <cmsis_core.h>
 

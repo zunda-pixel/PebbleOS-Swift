@@ -7,7 +7,7 @@
 #include "console/pulse_internal.h"
 #include "pbl/services/filesystem/pfs.h"
 #include "system/logging.h"
-#include "util/size.h"
+#include "pbl/util/size.h"
 
 extern void command_help(void);
 
@@ -52,6 +52,11 @@ extern void command_dump_malloc_bt(void);
 extern void command_read_word(const char*);
 
 extern void command_backlight_ctl(const char*);
+extern void command_light_test(void);
+extern void command_als_lux(void);
+#if defined(CONFIG_ALS_SCREEN_COMPENSATION)
+extern void command_als_curve(void);
+#endif
 extern void command_backlight_set_color(const char*);
 
 extern void command_battery_charge_option(const char*);
@@ -238,7 +243,6 @@ extern void command_ble_logging_get_level(void);
 extern void command_ble_host_reset(void);
 
 extern void command_audit_delay_us(void);
-extern void command_enter_stop(void);
 
 extern void dialog_test_cmds(void);
 
@@ -285,7 +289,7 @@ extern void command_analytics_heartbeat(void);
 extern void command_console_disable_rx(const char *seconds_str);
 
 #ifdef CONFIG_SOC_SF32LB52
-extern void command_force_deepwfi(const char *arg);
+extern void command_force_wfi(const char *arg);
 #endif
 
 #if !defined(CONFIG_RELEASE) && defined(CONFIG_DISPLAY_JDI_SF32LB)
@@ -327,9 +331,6 @@ static const Command s_prompt_commands[] = {
   { "battery status", command_print_battery_status, 0 },
 #ifndef CONFIG_RELEASE
   { "audit delay", command_audit_delay_us, 0 },
-#ifndef CONFIG_SOC_SF32LB52
-  { "enter stop", command_enter_stop, 0},
-#endif
 #endif
 #ifndef CONFIG_RECOVERY_FW
   { "app list", command_app_list, 0 },
@@ -344,6 +345,11 @@ static const Command s_prompt_commands[] = {
 #ifndef CONFIG_RECOVERY_FW
   { "temp read",  command_temperature_read, 0 },
   { "als read", command_als_read, 0},
+  { "als lux", command_als_lux, 0},
+  { "light test", command_light_test, 0},
+#if defined(CONFIG_ALS_SCREEN_COMPENSATION)
+  { "als curve", command_als_curve, 0},
+#endif
 #ifndef CONFIG_RELEASE
   { "litter pfs", command_litter_filesystem, 2 },
 #endif
@@ -620,7 +626,7 @@ static const Command s_prompt_commands[] = {
   { "vibe", command_vibe_ctl, 1 },
   { "console disable rx", command_console_disable_rx, 1 },
 #ifdef CONFIG_SOC_SF32LB52
-  { "force deepwfi", command_force_deepwfi, 1 },
+  { "force wfi", command_force_wfi, 1 },
 #endif
 #if !defined(CONFIG_RELEASE) && defined(CONFIG_DISPLAY_JDI_SF32LB)
   { "display drop_complete", command_display_drop_complete, 0 },

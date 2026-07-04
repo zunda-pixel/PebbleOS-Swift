@@ -7,7 +7,7 @@
 #include "kernel/pebble_tasks.h"
 #include "process_management/app_manager.h"
 #include "process_management/worker_manager.h"
-#include "os/mutex.h"
+#include "pbl/os/mutex.h"
 #include "pbl/services/event_service.h"
 #include "syscall/syscall_internal.h"
 #include "syscall/syscall.h"
@@ -222,7 +222,7 @@ void event_service_handle_event(PebbleEvent *e) {
         continue;
       } else {
         if (!prv_event_service_send_event(service->subscribers[i], e)) {
-          PBL_LOG_INFO("Queue full! %d not delivered to task %d!",
+          PBL_LOG_ERR("Queue full! %d not delivered to task %d!",
                   (int)e->type, (int)i);
 #ifndef CONFIG_RELEASE
           // For 3rd party apps, just close them. For a 1st party app or other task, reboot

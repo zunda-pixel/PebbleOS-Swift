@@ -63,11 +63,6 @@ typedef struct {
 } OutputConfig;
 
 typedef struct {
-  void *gpio;
-  uint8_t gpio_pin;
-} AfConfig;
-
-typedef struct {
   int pad;
   pin_function func;
   int flags;
@@ -89,18 +84,7 @@ typedef struct {
 } PwmConfig;
 
 typedef struct {
-} TimerConfig;
-
-typedef enum {
-  ActuatorOptions_Ctl = 1 << 0, ///< GPIO is used to enable / disable vibe
-  ActuatorOptions_Pwm = 1 << 1, ///< PWM control
-  ActuatorOptions_HBridge = 1 << 3, //< PWM actuates an H-Bridge, requires ActuatorOptions_PWM
-} ActuatorOptions;
-
-typedef struct {
-  const ActuatorOptions options;
   const OutputConfig ctl;
-  const PwmConfig pwm;
 } BoardConfigActuator;
 
 typedef struct {
@@ -108,10 +92,11 @@ typedef struct {
   //ambient light config
   uint32_t ambient_light_dark_threshold;
   uint32_t ambient_k_delta_threshold;
-#ifdef CONFIG_DYNAMIC_BACKLIGHT
-  //dynamic backlight thresholds
-  uint32_t dynamic_backlight_min_threshold;
-#endif
+  // Raw-count -> lux conversion: lux = (level - offset) * num / den.
+  // den == 0 means no conversion available for this board.
+  uint32_t ambient_light_lux_dark_offset;
+  uint32_t ambient_light_lux_num;
+  uint32_t ambient_light_lux_den;
 #ifdef CONFIG_BACKLIGHT_HAS_COLOR
   // Default RGB backlight color (packed 0x00RRGGBB), applied when no app
   // override is set. User-preference overrides this via backlight_set_color().
@@ -141,34 +126,8 @@ typedef struct {
   const uint16_t battery_capacity_hours;
 } BoardConfigPower;
 
-typedef enum {
-  AccelThresholdLow, ///< A sensitive state used for stationary mode
-  AccelThresholdHigh, ///< The accelerometer's default sensitivity
-  AccelThreshold_Num,
-} AccelThreshold;
-
 typedef struct {
-  int axes_offsets[3];
-  bool axes_inverts[3];
-  uint32_t shake_thresholds[AccelThreshold_Num];
-  uint32_t double_tap_threshold;
-  // LSM6DSO tap timing parameters (in register units):
-  // tap_shock:   0..3   => maximum duration of an over-threshold acceleration for tap recognition.
-  // tap_quiet:   0..3   => quiet time after a tap where acceleration must remain below threshold.
-  // tap_dur:     0..15  => max time window between first and second tap for double tap detection.
-  // Values of 0 use driver defaults if unsupported by the underlying IMU.
-  uint8_t tap_shock;
-  uint8_t tap_quiet;
-  uint8_t tap_dur;
-  // Default motion sensitivity (0-100), where 100 = most sensitive.
-  // A value of 0 means use the firmware default (85 = High).
   uint8_t default_motion_sensitivity;
-} AccelConfig;
-
-typedef struct {
-  const AccelConfig accel_config;
-  const InputConfig accel_int_gpios[2];
-  const ExtiConfig accel_ints[2];
 } BoardConfigAccel;
 
 typedef struct {
@@ -180,12 +139,6 @@ typedef struct {
   const MagConfig mag_config;
 } BoardConfigMag;
 
-typedef enum {
-  SpiPeriphClockAPB1,
-  SpiPeriphClockAPB2
-} SpiPeriphClock;
-
-#include "drivers/dma.h"
 #include "drivers/flash/qspi_flash.h"
 #include "drivers/flash/qspi_flash_definitions.h"
 #include "drivers/qspi_definitions.h"
@@ -194,10 +147,7 @@ typedef enum {
 #include "drivers/mic/sf32lb52/pdm_definitions.h"
 #include "drivers/speaker/sf32lb52/audio_definitions.h"
 
-typedef const struct DMARequest DMARequest;
 typedef const struct UARTDevice UARTDevice;
-typedef const struct SPIBus SPIBus;
-typedef const struct SPISlavePort SPISlavePort;
 typedef const struct I2CBus I2CBus;
 typedef const struct I2CSlavePort I2CSlavePort;
 typedef const struct HRMDevice HRMDevice;

@@ -6,9 +6,8 @@
 #include <stdbool.h>
 
 #include "board/board.h"
-#include "drivers/periph_config.h"
 #include "kernel/events.h"
-#include "mcu/interrupts.h"
+#include "pbl/mcu/interrupts.h"
 #include "system/logging.h"
 #include "system/passert.h"
 

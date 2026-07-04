@@ -7,17 +7,11 @@
 #include "console/prompt.h"
 #include "drivers/gpio.h"
 #include "drivers/i2c.h"
-#include "drivers/periph_config.h"
 #include "drivers/pmic.h"
 #include "drivers/pwm.h"
-#include "drivers/timer.h"
-#include "kernel/util/stop.h"
 #include "system/logging.h"
 #include "system/passert.h"
-#include "util/math.h"
-
-#include "pbl/services/battery/battery_monitor.h"
-#include "pbl/services/battery/battery_state.h"
+#include "pbl/util/math.h"
 
 #include <string.h>
 
@@ -76,10 +70,9 @@ void vibe_init(void) {
   gpio_output_set(&BOARD_CONFIG_VIBE.ctl, true);
   uint8_t rv;
   bool found = prv_read_register(DRV2604_STATUS, &rv);
-  if (found) {
-    PBL_LOG_INFO("Found DRV2604 with STATUS register %02x", rv);
-  } else {
+  if (!found) {
     PBL_LOG_ERR("Failed to read the STATUS register");
+    return;
   }
   
   /* calibration table maybe should live in the board file? */
@@ -126,10 +119,6 @@ void vibe_set_strength(int8_t strength) {
 void vibe_ctl(bool on) {
   if (!s_initialized) {
     return;
-  }
-
-  if (on && battery_monitor_critical_lockout()) {
-    on = false;
   }
 
   PBL_LOG_DBG("Vibe status <%s>", on ? "on" : "off");

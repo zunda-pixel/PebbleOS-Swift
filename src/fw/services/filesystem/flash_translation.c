@@ -10,8 +10,8 @@
 #include "pbl/services/filesystem/pfs.h"
 #include "system/logging.h"
 #include "system/passert.h"
-#include "util/math.h"
-#include "util/size.h"
+#include "pbl/util/math.h"
+#include "pbl/util/size.h"
 
 PBL_LOG_MODULE_DECLARE(service_filesystem, CONFIG_SERVICE_FILESYSTEM_LOG_LEVEL);
 
@@ -113,7 +113,7 @@ void ftl_add_region(uint32_t region_start, uint32_t region_end, bool erase_new_r
 
 void ftl_populate_region_list(void) {
   uint8_t flash_layout_version = prv_ftl_get_layout_version();
-  PBL_LOG_INFO("Filesystem: Old Flash Layout Version: %u", flash_layout_version);
+  PBL_LOG_DBG("Flash Layout Version: %u", flash_layout_version);
 
   for (unsigned int i = s_next_region_idx; i < flash_layout_version; i++) {
     ftl_add_region(s_region_list[i].start, s_region_list[i].end, false);

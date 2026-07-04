@@ -20,8 +20,8 @@
 
 #include <bluetooth/gap_le_connect.h>
 #include <bluetooth/pebble_pairing_service.h>
-#include <btutil/bt_device.h>
-#include <btutil/sm_util.h>
+#include <pbl/btutil/bt_device.h>
+#include <pbl/btutil/sm_util.h>
 
 PBL_LOG_MODULE_DECLARE(bt, CONFIG_BT_LOG_LEVEL);
 
@@ -451,7 +451,7 @@ void bt_driver_handle_le_connection_complete_event(const BleConnectionCompleteEv
         // There is no connection intent from our end. This could be the phone that is connecting
         // for the first time. Let the connection watchdog (TODO: PBL-11236) take care of
         // disconnecting at some point, if the connection ends up being unused.
-        PBL_LOG_INFO("No intent for connection");
+        PBL_LOG_WRN("No intent for connection");
         bluetooth_analytics_handle_no_intent_for_connection();
       }
 

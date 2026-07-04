@@ -10,14 +10,14 @@
 #include "kernel/kernel_heap.h"
 #include "kernel/pbl_malloc.h"
 #include "kernel/util/sleep.h"
-#include "os/mutex.h"
+#include "pbl/os/mutex.h"
 #include "pbl/services/system_task.h"
 #include "system/logging.h"
 #include "system/passert.h"
-#include "util/circular_buffer.h"
-#include "util/heap.h"
-#include "util/math.h"
-#include "util/size.h"
+#include "pbl/util/circular_buffer.h"
+#include "pbl/util/heap.h"
+#include "pbl/util/math.h"
+#include "pbl/util/size.h"
 #include "util/time/time.h"
 
 #include "hal/nrf_clock.h"
@@ -424,9 +424,7 @@ bool mic_start(const MicDevice *this, MicDataHandlerCB data_handler, void *conte
     mutex_unlock_recursive(state->mutex);
     return false;
   }
-  
-  PBL_LOG_INFO("Microphone started");
-  
+
   mutex_unlock_recursive(state->mutex);
   return true;
 }
@@ -466,9 +464,7 @@ void mic_stop(const MicDevice *this) {
   state->audio_buffer = NULL;
   state->audio_buffer_len = 0;
   state->main_pending = false;
-  
-  PBL_LOG_INFO("Microphone stopped");
-  
+
   mutex_unlock_recursive(state->mutex);
 }
 

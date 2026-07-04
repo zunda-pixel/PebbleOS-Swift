@@ -10,9 +10,9 @@
 #include "kernel/pbl_malloc.h"
 #include "kernel/util/segment.h"
 #include "kernel/util/task_init.h"
-#include "mcu/cache.h"
-#include "mcu/privilege.h"
-#include "os/tick.h"
+#include "pbl/mcu/cache.h"
+#include "pbl/mcu/privilege.h"
+#include "pbl/os/tick.h"
 #include "popups/crashed_ui.h"
 #include "process_management/app_install_manager.h"
 #include "process_management/app_manager.h"
@@ -27,7 +27,6 @@
 
 // FreeRTOS stuff
 #include "FreeRTOS.h"
-#include "freertos_application.h"
 #include "task.h"
 #include "queue.h"
 

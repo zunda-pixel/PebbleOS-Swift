@@ -18,16 +18,16 @@
 #include "kernel/pbl_malloc.h"
 #include "kernel/pebble_tasks.h"
 #include "kernel/util/sleep.h"
-#include "os/mutex.h"
+#include "pbl/os/mutex.h"
 #include "pbl/services/analytics/analytics.h"
 #include "pbl/services/filesystem/flash_translation.h"
 #include "system/hexdump.h"
 #include "system/logging.h"
 #include "system/passert.h"
-#include "util/attributes.h"
+#include "pbl/util/attributes.h"
 #include "util/crc8.h"
 #include "util/legacy_checksum.h"
-#include "util/math.h"
+#include "pbl/util/math.h"
 
 PBL_LOG_MODULE_DEFINE(service_filesystem, CONFIG_SERVICE_FILESYSTEM_LOG_LEVEL);
 
@@ -542,7 +542,7 @@ static void update_last_written_page(void) {
         prv_page_to_flash_offset(pg) + offsetof(PageHeader, last_written));
     if (hdr.last_written == LAST_WRITTEN_TAG) {
       s_last_page_written = pg;
-      PBL_LOG_INFO("Last written page %d", (int)s_last_page_written);
+      PBL_LOG_DBG("Last written page %d", (int)s_last_page_written);
       return;
     }
   }

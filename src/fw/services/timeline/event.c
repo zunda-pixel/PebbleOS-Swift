@@ -10,7 +10,7 @@
 #include "kernel/events.h"
 #include "kernel/pbl_malloc.h"
 #include "kernel/pebble_tasks.h"
-#include "os/mutex.h"
+#include "pbl/os/mutex.h"
 #include "pbl/services/system_task.h"
 #include "pbl/services/blob_db/pin_db.h"
 #include "system/logging.h"
@@ -73,7 +73,7 @@ static uint32_t prv_calc_timeout(const TimelineItem *item) {
 
 static void prv_set_timer(unsigned int timeout_ms) {
   if (!timeout_ms) {
-    PBL_LOG_INFO("Not setting timer.");
+    PBL_LOG_ERR("Not setting timer");
   } else if (new_timer_start(s_timer, timeout_ms, prv_new_timer_callback, NULL, 0)) {
     PBL_LOG_DBG("Set timer for %u", timeout_ms);
   } else {

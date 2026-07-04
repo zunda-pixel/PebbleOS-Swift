@@ -31,16 +31,7 @@
     {
       "id": -98,
       "enum": "KICKSTART",
-      "md_fn": "kickstart_get_app_info",
-      "target_platforms": [
-        "snowy",
-        "spalding",
-        "silk",
-        "asterix",
-        "obelix",
-        "snowy_emery",
-        "robert"
-      ]
+      "md_fn": "kickstart_get_app_info"
     },
     {
       "id": -2,
@@ -98,10 +89,6 @@
       "md_fn": "bouncing_box_demo_get_app_info",
       "ifdefs": [
         "CONFIG_DEMO_APP_BOUNCING_BOX_DEMO"
-      ],
-      "target_platforms": [
-        "snowy",
-        "robert"
       ]
     },
     {
@@ -289,6 +276,14 @@
       ]
     },
     {
+      "id": -192,
+      "enum": "ACCEL_DEMO",
+      "md_fn": "accel_demo_get_info",
+      "ifdefs": [
+        "CONFIG_DEMO_APP_ACCEL_DEMO"
+      ]
+    },
+    {
       "id": -43,
       "enum": "PERSIST",
       "md_fn": "persist_app_get_info",
@@ -379,9 +374,6 @@
       "md_fn": "stroke_width_get_app_info",
       "ifdefs": [
         "CONFIG_DEMO_APP_STROKE_WIDTH"
-      ],
-      "target_platforms": [
-        "snowy"
       ]
     },
     {
@@ -403,16 +395,6 @@
       "enum": "WORKOUT",
       "md_fn": "workout_app_get_info",
       "color_argb8": "GColorYellowARGB8"
-    },
-    {
-      "id": -60,
-      "enum": "SHUTDOWN_CHARGING",
-      "md_fn": "shutdown_charging_get_app_info",
-      "target_platforms": [
-        "snowy",
-        "spalding",
-        "robert"
-      ]
     },
     {
       "id": -61,
@@ -547,7 +529,8 @@
         "CONFIG_DEMO_APP_MENU_ROUND"
       ],
       "target_platforms": [
-        "spalding"
+        "getafix",
+        "qemu_gabbro"
       ]
     },
     {
@@ -556,16 +539,6 @@
       "md_fn": "activity_demo_get_app_info",
       "ifdefs": [
         "CONFIG_DEMO_APP_ACTIVITY_DEMO"
-      ],
-      "target_platforms": [
-        "snowy",
-        "spalding",
-        "silk",
-        "robert",
-        "snowy_emery",
-        "obelix",
-        "getafix",
-        "spalding_gabbro"
       ]
     },
     {
@@ -574,12 +547,6 @@
       "md_fn": "activity_test_get_app_info",
       "ifdefs": [
         "CONFIG_DEMO_APP_ACTIVITY_TEST"
-      ],
-      "target_platforms": [
-        "snowy",
-        "spalding",
-        "silk",
-        "robert"
       ]
     },
     {
@@ -607,10 +574,6 @@
       "md_fn": "vibe_score_demo_get_info",
       "ifdefs": [
         "CONFIG_DEMO_APP_VIBE_SCORE"
-      ],
-      "target_platforms": [
-        "snowy",
-        "spalding"
       ]
     },
     {
@@ -619,10 +582,6 @@
       "md_fn": "idl_demo_get_app_info",
       "ifdefs": [
         "CONFIG_DEMO_APP_IDL"
-      ],
-      "target_platforms": [
-        "snowy",
-        "spalding"
       ]
     },
     {
@@ -631,9 +590,6 @@
       "md_fn": "temperature_demo_get_app_info",
       "ifdefs": [
         "CONFIG_DEMO_APP_TEMPERATURE_DEMO"
-      ],
-      "target_platforms": [
-        "snowy"
       ]
     },
     {
@@ -642,10 +598,6 @@
       "md_fn": "gdrawmask_demo_get_app_info",
       "ifdefs": [
         "CONFIG_DEMO_APP_GDRAWMASK_DEMO"
-      ],
-      "target_platforms": [
-        "snowy",
-        "spalding"
       ]
     },
     {
@@ -661,18 +613,7 @@
       "id": -90,
       "enum": "REMINDERS",
       "md_fn": "reminder_app_get_info",
-      "color_argb8": "GColorChromeYellowARGB8",
-      "target_platforms": [
-        "snowy",
-        "spalding",
-        "silk",
-        "robert",
-        "asterix",
-        "obelix",
-        "snowy_emery",
-        "getafix",
-        "spalding_gabbro"
-      ]
+      "color_argb8": "GColorChromeYellowARGB8"
     },
     {
       "id": -91,
@@ -680,12 +621,6 @@
       "md_fn": "test_mpu_cache_get_info",
       "ifdefs": [
         "CONFIG_DEMO_APP_MPU_TEST"
-      ],
-      "target_platforms": [
-        "snowy",
-        "spalding",
-        "silk",
-        "robert"
       ]
     },
     {
