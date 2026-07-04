@@ -37,7 +37,11 @@ def _swiftc_compile(task):
     swiftc = shutil.which('swiftc')
     if not swiftc:
         gen.bld.fatal('swiftc not found on PATH (required for Swift stored apps)')
-    cmd = ([swiftc, '-c'] + [s.abspath() for s in task.inputs] +
+    # Only .swift inputs are compiled; other inputs (generated *.auto.h, the
+    # bridging header) are listed as inputs purely to order this task after the
+    # rules that produce them.
+    swift_srcs = [s.abspath() for s in task.inputs if s.suffix() == '.swift']
+    cmd = ([swiftc, '-c'] + swift_srcs +
            ['-o', task.outputs[0].abspath(), '-target', SWIFT_TARGET] + SWIFT_FLAGS)
     # Match the firmware's variable-size enum ABI for imported C enums.
     cmd += ['-Xcc', '-fshort-enums']
@@ -123,21 +127,31 @@ def build_app(bld, app_name):
     swift_objs = []
     if swift_sources:
         pebble_ui = bld.srcnode.find_node('sdk/swift/PebbleUI.swift')
+        bridging_node = bld.path.get_src().find_node('%s/src/bridging.h' % (app_name))
+        # Compile the app's Swift + shared PebbleUI. The generated headers that
+        # pebble.h pulls in (message_keys.auto.h, src/resource_ids.auto.h) and
+        # the bridging header are added as inputs so this task runs after the
+        # rules that produce them; _swiftc_compile only feeds .swift to swiftc.
         all_swift = ([pebble_ui] if pebble_ui is not None else []) + swift_sources
+        # Also depend on the generated SDK headers so swiftc runs after SDK
+        # header generation (the -I path alone gives no build-order edge).
+        # pebble.h and pebble_fonts.h come from two different tasks; pebble.h's
+        # task also emits xsffi.h / pebble_warn_unsupported_functions.h, so these
+        # two nodes cover everything pebble.h pulls in from the SDK.
+        sdk_include = sdk_folder.make_node('include')
+        order_deps = [message_keys_auto_node, resource_ids_auto_node,
+                      sdk_include.make_node('pebble.h'),
+                      sdk_include.make_node('pebble_fonts.h')]
+        if bridging_node is not None:
+            order_deps.append(bridging_node)
         swift_obj = bld.path.get_bld().make_node('%s/swift_%s.o' % (app_name, app_name))
-        swift_tg = bld(rule=_swiftc_compile, source=all_swift, target=swift_obj,
-                       env=stored_apps_env)
-        # SDK headers + the app build dir holding the generated *.auto.h that
-        # pebble.h pulls in (message_keys.auto.h, src/resource_ids.auto.h).
+        swift_tg = bld(rule=_swiftc_compile, source=all_swift + order_deps,
+                       target=swift_obj, env=stored_apps_env)
+        # SDK headers + the app build dir holding the generated *.auto.h.
         swift_tg.swift_includes = [sdk_folder.make_node('include').abspath(),
                                    bld.path.get_bld().make_node(app_name).abspath()]
-        bridging_node = bld.path.get_src().find_node('%s/src/bridging.h' % (app_name))
         if bridging_node is not None:
             swift_tg.swift_bridging_header = bridging_node.abspath()
-            bld.add_manual_dependency(swift_obj, bridging_node)
-        # Ensure the generated headers exist before the Swift importer runs.
-        bld.add_manual_dependency(swift_obj, message_keys_auto_node)
-        bld.add_manual_dependency(swift_obj, resource_ids_auto_node)
         swift_objs = [swift_obj]
         # Swift heap support (posix_memalign + EABI mem helpers); dropped by
         # --gc-sections if the app stays heap-free.
