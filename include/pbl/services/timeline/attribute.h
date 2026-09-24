@@ -123,6 +123,14 @@ typedef enum {
   //! height/width in sixteenths, so the card can reserve a band of the right shape before the
   //! pixels arrive. Absent or 0 means no image.
   AttributeIdImageAspectRatio = 52,
+  //! AccessoryNotifications reply context, stored on a forwarded
+  //! notification so a watch action can be sealed back to the phone: the transport
+  //! featureID and the iOS notification identifier. Not displayed.
+  AttributeIdAccessoryFeatureId = 53,
+  AttributeIdAccessoryNotificationId = 54,
+  //! The forwarded action's iOS action identifier (not displayed), sealed back when
+  //! the action is chosen.
+  AttributeIdAccessoryActionId = 55,
   NumAttributeIds,
 } AttributeId;
 
