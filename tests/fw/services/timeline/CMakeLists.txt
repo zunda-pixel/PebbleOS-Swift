@@ -35,6 +35,7 @@ pbl_clar_test(test_calendar
     src/fw/services/timeline/event.c
     src/fw/services/timeline/item.c
     src/fw/services/timeline/timeline.c
+    tests/stubs/stubs_accessory_notifications.c
     src/fw/util/crc8.c
     src/fw/util/time/time.c
     tests/fakes/fake_events.c
@@ -54,6 +55,7 @@ pbl_clar_test(test_timeline_peek_event
     src/fw/services/timeline/item.c
     src/fw/services/timeline/peek.c
     src/fw/services/timeline/timeline.c
+    tests/stubs/stubs_accessory_notifications.c
     src/fw/util/crc8.c
     src/fw/util/time/time.c
     tests/fakes/fake_events.c
@@ -89,6 +91,7 @@ pbl_clar_test(test_timeline_model
     src/fw/services/timeline/attributes_actions.c
     src/fw/services/timeline/attribute_group.c
     src/fw/services/timeline/timeline.c
+    tests/stubs/stubs_accessory_notifications.c
     src/fw/services/blob_db/pin_db.c
     src/fw/apps/system/timeline/model.c
   OVERRIDES dummy_board
