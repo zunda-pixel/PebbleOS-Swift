@@ -31,8 +31,19 @@ typedef void (*AccessoryTransportNotificationHandler)(const uint8_t *data, size_
 //! symbol, so the wiring does not depend on link order. NULL clears it.
 void accessory_transport_service_set_handler(AccessoryTransportNotificationHandler handler);
 
+//! Reports the real outcome of an async reply send. `ok` is true only if the reply
+//! was actually sealed and fully notified to the phone. Runs on the BLE host task, so
+//! marshal to another task before touching storage / posting events / i18n.
+typedef void (*AccessoryTransportSendComplete)(void *ctx, bool ok);
+
 //! Seal an accessory->host reply for `feature_id` and notify it to the phone
-//! (0x82 RESPONSE frame). Callable from any task. Returns false if there is no
-//! active session/connection or sealing fails. Used by the notification action UI.
+//! (0x82 RESPONSE frame). Callable from any task; the seal+notify runs later on the
+//! BLE host task. The return value means only that the reply was ACCEPTED for async
+//! delivery (synchronous validation + enqueue succeeded) — NOT that it was sent. The
+//! true send outcome is reported via `complete`, which fires exactly once iff this
+//! returns true. `complete` may be NULL (fire-and-forget); `ctx` is passed back to it.
+//! When this returns false, `complete` is never called and `ctx` is untouched, so the
+//! caller still owns `ctx`. Used by the notification action UI.
 bool accessory_transport_service_send_response(const char *feature_id, size_t feature_id_len,
-                                               const uint8_t *payload, size_t payload_len);
+                                               const uint8_t *payload, size_t payload_len,
+                                               AccessoryTransportSendComplete complete, void *ctx);

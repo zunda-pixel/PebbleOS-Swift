@@ -24,6 +24,7 @@
 //! which seals the reply back to the phone via the transport (AccessoryToHost).
 //! The decrypt runs on the BT host task, so the work is marshaled to the system task.
 
+#include "kernel/event_loop.h"
 #include "kernel/pbl_malloc.h"
 #include "pbl/bluetooth/accessory_transport.h"
 #include "pbl/drivers/rtc.h"
@@ -35,6 +36,7 @@
 #include "pbl/services/timeline/attribute.h"
 #include "pbl/services/timeline/item.h"
 #include "pbl/services/timeline/layout_layer.h"
+#include "pbl/services/timeline/timeline.h"
 #include "pbl/util/uuid.h"
 
 // The name-based UUID below hashes with mbed TLS directly. Like hpke.c, this relies
@@ -298,10 +300,10 @@ static void prv_present(const uint8_t *d, size_t n, const char *feature_id, size
     // phone-action-only) can be dismissed on the watch, like ANCS. The notification
     // window special-cases TimelineItemActionTypeDismiss (root-level Dismiss/Dismiss All
     // and Select-to-dismiss); dismissing invokes the local-dismiss path. Distinct id
-    // from the phone actions (0..num_actions-1). Plain title — prv_present runs on the
-    // system task, where i18n_get is unsafe.
+    // from the phone actions (0..num_actions-1). No title: prv_present runs on the system
+    // task where i18n_get is unsafe, so the menu builder localizes the label on KernelMain
+    // (timeline_actions_add_action_to_root_level).
     action_attrs[num_actions] = (AttributeList){0};
-    attribute_list_add_cstring(&action_attrs[num_actions], AttributeIdTitle, "Dismiss");
     actions[num_actions] = (TimelineItemAction){
       .id = num_actions,
       .type = TimelineItemActionTypeDismiss,
@@ -406,6 +408,32 @@ static void prv_process(void *ctx) {
   kernel_free(p);
 }
 
+// Carries a reply's real send outcome from the transport completion (BT host task)
+// to KernelMain, where the action result is posted.
+typedef struct {
+  Uuid id;
+  bool ok;
+} ANReplyResult;
+
+// KernelMain: post the reply's true send outcome as the notification's action result.
+// Must run here, not the system task: timeline_put_accessory_action_result → i18n_get is
+// KernelMain-affine and unlocked, so posting from another task would race i18n's list.
+static void prv_post_reply_result(void *ctx) {
+  ANReplyResult *res = ctx;
+  timeline_put_accessory_action_result(&res->id, res->ok);
+  kernel_free(res);
+}
+
+// Transport send completion. Runs on the BT host task, so it can't post the result
+// directly — marshal to KernelMain (i18n_get in the posted path is KernelMain-affine).
+// Fires exactly once per accepted send; `res` is owned here and freed in
+// prv_post_reply_result (launcher_task_add_callback always enqueues).
+static void prv_reply_complete(void *ctx, bool ok) {
+  ANReplyResult *res = ctx;
+  res->ok = ok;
+  launcher_task_add_callback(prv_post_reply_result, res);
+}
+
 // See accessory_notifications.h. Reply wire (to the transport):
 //   u8 notification_id_len | notification_id | u8 action_id_len | action_id |
 //   u16 text_len (LE) | text
@@ -449,16 +477,26 @@ bool accessory_notifications_invoke_action(const TimelineItem *item,
     memcpy(&payload[o], text, text_len);
     o += text_len;
   }
-  const bool sent =
-      accessory_transport_service_send_response(feature_id, strlen(feature_id), payload, o);
-  if (sent) {
-    PBL_LOG_DBG("AN: sent action reply (%u text bytes)", (unsigned)text_len);
-    // Not removed: "sent" means queued, not delivered. Success marks it actioned.
-  } else {
-    PBL_LOG_ERR("AN: action reply send failed");
+  // The seal+notify runs later on the BT host task; carry the notification id so the
+  // transport's completion can post the real Sent/Failed result for it.
+  ANReplyResult *res = kernel_malloc(sizeof(*res));
+  if (!res) {
+    kernel_free(payload);
+    return false;
   }
-  kernel_free(payload);
-  return sent;
+  res->id = item->header.id;
+  // Returns true only if accepted for async delivery; the real outcome arrives via
+  // prv_reply_complete. Don't mark actioned here — that follows the async success.
+  const bool accepted = accessory_transport_service_send_response(
+      feature_id, strlen(feature_id), payload, o, prv_reply_complete, res);
+  kernel_free(payload); // send_response copied it
+  if (!accepted) {
+    PBL_LOG_ERR("AN: action reply not accepted for delivery");
+    kernel_free(res); // completion won't fire, so free the ctx here
+    return false;
+  }
+  PBL_LOG_DBG("AN: action reply accepted (%u text bytes); result follows", (unsigned)text_len);
+  return true;
 }
 
 // The registered consumer: copies the payload + feature id and defers the parse to

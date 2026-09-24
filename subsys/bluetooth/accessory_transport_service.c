@@ -386,18 +386,19 @@ static bool prv_derive_key(ATSDirection dir, const uint8_t *feature_id, uint8_t 
 }
 
 //! Seal a reply (accessory->host) for feature id `feature_id` and notify it on TX as a
-//! 0x82 RESPONSE frame. Must run on the NimBLE host task (notifies).
-static void prv_send_response(uint16_t conn_handle, const uint8_t *feature_id,
+//! 0x82 RESPONSE frame. Must run on the NimBLE host task (notifies). Returns true only
+//! if the reply was fully sealed and notified — the caller reports this as the result.
+static bool prv_send_response(uint16_t conn_handle, const uint8_t *feature_id,
                               uint8_t feature_id_len, const uint8_t *plaintext, size_t pt_len) {
   if (!s_keypair.ready || !s_session.enc_ready) {
-    return;
+    return false;
   }
   if (pt_len > ACCESSORY_TRANSPORT_MAX_PAYLOAD) {
-    return;
+    return false;
   }
   uint8_t key[HPKE_AES256GCM_KEY_BYTES];
   if (!prv_derive_key(ATSDirectionAccessoryToHost, feature_id, feature_id_len, key)) {
-    return;
+    return false;
   }
   // Heap, not stack (this runs after HPKE, which already presses on the host-task stack).
   const size_t frame_cap =
@@ -405,7 +406,7 @@ static void prv_send_response(uint16_t conn_handle, const uint8_t *feature_id,
       (ATS_NONCE_BYTES + pt_len + HPKE_TAG_BYTES); // feature_id_len | feature_id | wire
   uint8_t *frame = kernel_malloc(frame_cap);
   if (!frame) {
-    return;
+    return false;
   }
   frame[0] = feature_id_len;
   memcpy(&frame[1], feature_id, feature_id_len);
@@ -414,7 +415,7 @@ static void prv_send_response(uint16_t conn_handle, const uint8_t *feature_id,
                           ATS_NONCE_BYTES + pt_len + HPKE_TAG_BYTES, &wire_len) != HPKEOk) {
     PBL_LOG_ERR("AN transport: reply seal failed");
     kernel_free(frame);
-    return;
+    return false;
   }
   // The reply can exceed the ATT MTU, so fragment it: each 0x82 frame is `flags | chunk`
   // (flags = MORE|FIRST). The phone resets its reassembly on FIRST and concatenates
@@ -443,6 +444,7 @@ static void prv_send_response(uint16_t conn_handle, const uint8_t *feature_id,
     sent += n;
   }
   kernel_free(frame);
+  return sent == total_len;  // false if a fragment failed mid-send
 }
 
 //! RX 0x03 DATA: u8 feature_id_len | feature_id | nonce(12) | ciphertext | tag(16). Derives the
@@ -509,6 +511,8 @@ static void prv_handle_data_frame(uint16_t conn_handle, const uint8_t *p, uint16
 // for P-256 and notify wants the host task). Marshal onto the NimBLE host task.
 typedef struct {
   struct ble_npl_event ev;
+  AccessoryTransportSendComplete complete; // async delivery result (may be NULL)
+  void *ctx;
   uint16_t conn_handle;
   uint8_t feature_id[ACCESSORY_TRANSPORT_MAX_FEATURE_ID_LEN];
   uint8_t feature_id_len;
@@ -518,14 +522,20 @@ typedef struct {
 
 static void prv_reply_event(struct ble_npl_event *ev) {
   ATSReplyReq *r = ble_npl_event_get_arg(ev);
-  prv_send_response(r->conn_handle, r->feature_id, r->feature_id_len, r->payload, r->payload_len);
+  const bool ok = prv_send_response(r->conn_handle, r->feature_id, r->feature_id_len, r->payload,
+                                    r->payload_len);
+  if (r->complete) {
+    r->complete(r->ctx, ok); // report the real seal+notify outcome (fires exactly once)
+  }
   kernel_free(r);
 }
 
 bool accessory_transport_service_send_response(const char *feature_id, size_t feature_id_len,
-                                               const uint8_t *payload, size_t payload_len) {
+                                               const uint8_t *payload, size_t payload_len,
+                                               AccessoryTransportSendComplete complete, void *ctx) {
   // Best-effort pre-check (no lock; these are owned by the host task, where the
-  // authoritative seal+notify runs) so the caller isn't told "Sent" with no way to send.
+  // authoritative seal+notify runs) so the caller isn't told "accepted" with no way to send.
+  // On any false return here `complete` is NOT called (the caller keeps `ctx`).
   if (s_conn_handle == BLE_HS_CONN_HANDLE_NONE || !s_keypair.ready || !s_session.enc_ready ||
       !feature_id || feature_id_len == 0 ||
       feature_id_len > ACCESSORY_TRANSPORT_MAX_FEATURE_ID_LEN ||
@@ -536,6 +546,8 @@ bool accessory_transport_service_send_response(const char *feature_id, size_t fe
   if (!r) {
     return false;
   }
+  r->complete = complete;
+  r->ctx = ctx;
   r->conn_handle = s_conn_handle;
   r->feature_id_len = (uint8_t)feature_id_len;
   memcpy(r->feature_id, feature_id, feature_id_len);
