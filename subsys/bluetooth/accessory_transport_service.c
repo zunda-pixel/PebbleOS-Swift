@@ -13,7 +13,7 @@
 //! exceed an MTU, so they are fragmented as `type | u8 flags | chunk` (flags bit0 MORE
 //! while more follows, bit1 FIRST on the first fragment) and reassembled into the
 //! logical frame below:
-//!   TX 0x01 PUBKEY   : pub[64] (raw X||Y)
+//!   TX 0x01 PUBKEY   : pub[64] (raw X||Y); notified on subscribe, and the TX value on a read
 //!   RX 0x02 SESSION  : enc[65] | u8 uuid_len | uuid
 //!   RX 0x03 DATA     : u8 feature_id_len | feature_id | nonce[12] | ct | tag[16]
 //!   TX 0x82 RESPONSE : u8 feature_id_len | feature_id | nonce[12] | ct | tag[16] (reply)
@@ -45,7 +45,7 @@
 PBL_LOG_MODULE_DECLARE(bt, CONFIG_BT_LOG_LEVEL);
 
 // Frame type bytes.
-#define ATS_FRAME_PUBKEY   0x01u // watch -> phone (TX notify)
+#define ATS_FRAME_PUBKEY   0x01u // watch -> phone (TX notify or read)
 #define ATS_FRAME_SESSION  0x02u // phone -> watch (RX write)
 #define ATS_FRAME_DATA     0x03u // phone -> watch (RX write)
 #define ATS_FRAME_RESPONSE 0x82u // watch -> phone (TX notify)
@@ -255,10 +255,23 @@ static bool prv_ensure_keypair(void) {
   return true;
 }
 
-static int prv_access_tx_notify(uint16_t conn_handle, uint16_t attr_handle,
-                                struct ble_gatt_access_ctxt *ctxt, void *arg) {
-  // Notify-only — refuse explicit reads.
-  return BLE_ATT_ERR_READ_NOT_PERMITTED;
+//! A TX read returns the PUBKEY frame, the same bytes the subscribe notification carries.
+//! The phone's key-exchange and transport extensions are separate processes on one link,
+//! and a second subscriber writes no CCCD, so it gets no subscribe event and no key.
+static int prv_access_tx(uint16_t conn_handle, uint16_t attr_handle,
+                         struct ble_gatt_access_ctxt *ctxt, void *arg) {
+  if (ctxt->op != BLE_GATT_ACCESS_OP_READ_CHR) {
+    return BLE_ATT_ERR_UNLIKELY;
+  }
+  if (!prv_ensure_keypair()) {
+    return BLE_ATT_ERR_UNLIKELY;
+  }
+  const uint8_t type = ATS_FRAME_PUBKEY;
+  if (os_mbuf_append(ctxt->om, &type, 1) != 0 ||
+      os_mbuf_append(ctxt->om, s_keypair.pub_raw, sizeof(s_keypair.pub_raw)) != 0) {
+    return BLE_ATT_ERR_INSUFFICIENT_RES;
+  }
+  return 0;
 }
 
 //! Notify one TX frame: `type`, then optional `hdr`, then `body` (the mbuf appends do
@@ -665,10 +678,9 @@ static const struct ble_gatt_svc_def s_an_transport_svc[] = {
           {
             .uuid = BLE_UUID128_DECLARE(BLE_UUID_SWIZZLE(PBL_BT_PEBBLE_UUID_EXPAND(
                 PBL_BT_PEBBLE_AN_TRANSPORT_TX_CHARACTERISTIC_UUID_32BIT))),
-            .access_cb = prv_access_tx_notify,
-            // READ_ENC (without READ) gates the CCCD to an encrypted link while
-            // keeping explicit reads blocked, matching the reversed-PPoG service.
-            .flags = BLE_GATT_CHR_F_NOTIFY | BLE_GATT_CHR_F_READ_ENC,
+            .access_cb = prv_access_tx,
+            // READ_ENC gates both the read and the CCCD write to an encrypted link.
+            .flags = BLE_GATT_CHR_F_NOTIFY | BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_READ_ENC,
             .val_handle = &s_tx_notify_handle,
           },
           {
