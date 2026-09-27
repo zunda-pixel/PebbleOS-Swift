@@ -16,7 +16,10 @@
 //!     0x06 alert(1 byte) — consumed but ignored; the watch's own DND/alert policy
 //!       governs popup/vibe, like ANCS,
 //!     0x07 action = [u8 flags|u8 action_id_len|action_id|u8 title_len|title]
-//!       flags bit 0 (AN_ACTION_FLAG_TEXT_INPUT): the action collects a reply
+//!       flags bit 0 (AN_ACTION_FLAG_TEXT_INPUT): the action collects a reply,
+//!     0x08 source identifier = the source app's bundle id (UTF-8, at most
+//!       SETTINGS_KEY_MAX_LEN bytes) — keys the app's iOSNotifPrefs, so Mute works
+//!       like ANCS
 //!
 //! It builds a standard notification TimelineItem (with an action menu) and hands
 //! it to `notifications_add_notification`, so forwarded notifications display like
@@ -29,9 +32,12 @@
 #include "pbl/bluetooth/accessory_transport.h"
 #include "pbl/drivers/rtc.h"
 #include "pbl/logging/logging.h"
+#include "pbl/services/blob_db/ios_notif_pref_db.h"
 #include "pbl/services/notifications/accessory_notifications.h"
+#include "pbl/services/notifications/ancs/ancs_filtering.h"
 #include "pbl/services/notifications/notification_storage.h"
 #include "pbl/services/notifications/notifications.h"
+#include "pbl/services/settings/settings_raw_iter.h"
 #include "pbl/services/system_task.h"
 #include "pbl/services/timeline/attribute.h"
 #include "pbl/services/timeline/item.h"
@@ -60,6 +66,7 @@ PBL_LOG_MODULE_DECLARE(service_notifications, CONFIG_SERVICE_NOTIFICATIONS_LOG_L
 #define AN_TAG_IDENTIFIER 0x05u
 #define AN_TAG_ALERT      0x06u
 #define AN_TAG_ACTION     0x07u
+#define AN_TAG_SOURCE_ID  0x08u
 
 //! Action flag bits (first byte of an AN_TAG_ACTION value). Bit 0 marks a
 //! text-input action (iOS AccessoryNotification.Action .textInput) — the watch
@@ -67,9 +74,9 @@ PBL_LOG_MODULE_DECLARE(service_notifications, CONFIG_SERVICE_NOTIFICATIONS_LOG_L
 #define AN_ACTION_FLAG_TEXT_INPUT 0x01u
 
 #define AN_MAX_ACTIONS 4
-// 6 item strings (title/subtitle/body/source/featureID/notificationID) plus up to
-// two strings (id + title) per action.
-#define AN_MAX_ALLOCS (6 + 2 * AN_MAX_ACTIONS)
+// 7 item strings (title/subtitle/body/source/source id/featureID/notificationID) plus
+// up to two strings (id + title) per action.
+#define AN_MAX_ALLOCS (7 + 2 * AN_MAX_ACTIONS)
 
 // A fixed namespace so these UUIDs share no space with any other name-based UUID
 // the system might mint. Generated once, at random; only its constancy matters.
@@ -208,6 +215,46 @@ static bool prv_parse_action(const uint8_t *val, uint8_t vlen, uint8_t action_in
   return true;
 }
 
+//! Heap ANCSAttribute holding `len` bytes of `val`, so the AN path can share
+//! ancs_filtering_record_app with ANCS. NULL for an empty value or on OOM.
+static ANCSAttribute *prv_ancs_attribute(const char *val, size_t len) {
+  if (!val || len == 0 || len > UINT16_MAX) {
+    return NULL;
+  }
+  ANCSAttribute *attr = kernel_malloc(sizeof(ANCSAttribute) + len);
+  if (attr) {
+    attr->id = 0;
+    attr->length = (uint16_t)len;
+    memcpy(attr->value, val, len);
+  }
+  return attr;
+}
+
+//! Record the source app in the iOS notification prefs (creating the record the Mute
+//! action edits, named after the display name) and report whether it is muted now —
+//! the ANCS path's ancs_filtering_record_app + ancs_filtering_is_muted.
+static bool prv_record_app_and_check_muted(const char *app_id, const char *display_name,
+                                           const char *title) {
+  const size_t app_id_len = strlen(app_id);
+  ANCSAttribute *app_id_attr = prv_ancs_attribute(app_id, app_id_len);
+  if (!app_id_attr) {
+    return false;
+  }
+  ANCSAttribute *display_name_attr =
+      prv_ancs_attribute(display_name, display_name ? strlen(display_name) : 0);
+  ANCSAttribute *title_attr = prv_ancs_attribute(title, title ? strlen(title) : 0);
+
+  iOSNotifPrefs *prefs = ios_notif_pref_db_get_prefs((const uint8_t *)app_id, (int)app_id_len);
+  ancs_filtering_record_app(&prefs, app_id_attr, display_name_attr, title_attr);
+  const bool muted = ancs_filtering_is_muted(prefs);
+  ios_notif_pref_db_free_prefs(prefs);
+
+  kernel_free(title_attr);
+  kernel_free(display_name_attr);
+  kernel_free(app_id_attr);
+  return muted;
+}
+
 static void prv_present(const uint8_t *d, size_t n, const char *feature_id, size_t feature_id_len) {
   AttributeList attr_list = {0};
   char *allocs[AN_MAX_ALLOCS];
@@ -215,6 +262,8 @@ static void prv_present(const uint8_t *d, size_t n, const char *feature_id, size
   bool have_content = false;
   const uint8_t *ident = NULL;
   uint8_t ident_len = 0;
+  const uint8_t *source_id = NULL;
+  uint8_t source_id_len = 0;
   // Keep the first of each content tag so duplicates can't starve the reply-context allocs.
   uint16_t seen_tags = 0;
 
@@ -254,6 +303,15 @@ static void prv_present(const uint8_t *d, size_t n, const char *feature_id, size
           ident_len = vlen;
         }
         continue;
+      case AN_TAG_SOURCE_ID:
+        // The prefs record is keyed by it, and a settings key can't be longer.
+        if (vlen > SETTINGS_KEY_MAX_LEN) {
+          PBL_LOG_WRN("AN: ignoring %u-byte source identifier", (unsigned)vlen);
+        } else if (!source_id) { // keep the first; ignore duplicates
+          source_id = val;
+          source_id_len = vlen;
+        }
+        continue;
       case AN_TAG_ALERT:
         // Consumed but ignored: the watch's own policy (DND/prefs) governs the popup and
         // vibe, like ANCS — not iOS's per-notification alert byte.
@@ -276,6 +334,21 @@ static void prv_present(const uint8_t *d, size_t n, const char *feature_id, size
     if (s) {
       attribute_list_add_cstring(&attr_list, attr_id, s);
       have_content = true;
+    }
+  }
+
+  if (have_content && source_id && source_id_len > 0) {
+    char *source_id_str = prv_dup(source_id, source_id_len, allocs, &num_allocs);
+    if (source_id_str) {
+      if (prv_record_app_and_check_muted(
+              source_id_str, attribute_get_string(&attr_list, AttributeIdAppName, NULL),
+              attribute_get_string(&attr_list, AttributeIdTitle, NULL))) {
+        // Muted from the watch's own Mute action: drop it, updates included, like ANCS.
+        PBL_LOG_DBG("AN: ignoring forwarded notification from <%s>: Muted", source_id_str);
+        have_content = false;
+      } else {
+        attribute_list_add_cstring(&attr_list, AttributeIdiOSAppIdentifier, source_id_str);
+      }
     }
   }
 

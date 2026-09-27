@@ -852,7 +852,13 @@ static bool prv_has_mute_action(TimelineItem *item) {
   PebbleProtocolCapabilities capabilities;
   bt_persistent_storage_get_cached_system_capabilities(&capabilities);
 
-  return timeline_item_is_ancs_notif(item) && capabilities.notification_filtering_support;
+  // A forwarded AccessoryNotifications item carries the bundle id when the phone sent one;
+  // its prefs record is created on arrival, as for ANCS.
+  const bool is_forwarded_with_app_id =
+      attribute_get_string(&item->attr_list, AttributeIdAccessoryFeatureId, NULL) &&
+      *attribute_get_string(&item->attr_list, AttributeIdiOSAppIdentifier, "");
+  return (timeline_item_is_ancs_notif(item) || is_forwarded_with_app_id) &&
+         capabilities.notification_filtering_support;
 }
 
 static ActionMenuLevel *prv_create_action_menu_for_item(TimelineItem *item,
