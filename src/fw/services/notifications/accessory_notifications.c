@@ -19,7 +19,11 @@
 //!       flags bit 0 (AN_ACTION_FLAG_TEXT_INPUT): the action collects a reply,
 //!     0x08 source identifier = the source app's bundle id (UTF-8, at most
 //!       SETTINGS_KEY_MAX_LEN bytes) — keys the app's iOSNotifPrefs, so Mute works
-//!       like ANCS
+//!       like ANCS,
+//!     0x09 replies = entries of [u8 len (>= 1)|len bytes of UTF-8], no terminators,
+//!       the count implied by the TLV length: the canned replies for every text-input
+//!       action, in order. Without it the watch offers its own. A malformed value is
+//!       ignored as a whole.
 //!
 //! It builds a standard notification TimelineItem (with an action menu) and hands
 //! it to `notifications_add_notification`, so forwarded notifications display like
@@ -67,6 +71,7 @@ PBL_LOG_MODULE_DECLARE(service_notifications, CONFIG_SERVICE_NOTIFICATIONS_LOG_L
 #define AN_TAG_ALERT      0x06u
 #define AN_TAG_ACTION     0x07u
 #define AN_TAG_SOURCE_ID  0x08u
+#define AN_TAG_REPLIES    0x09u
 
 //! Action flag bits (first byte of an AN_TAG_ACTION value). Bit 0 marks a
 //! text-input action (iOS AccessoryNotification.Action .textInput) — the watch
@@ -74,9 +79,9 @@ PBL_LOG_MODULE_DECLARE(service_notifications, CONFIG_SERVICE_NOTIFICATIONS_LOG_L
 #define AN_ACTION_FLAG_TEXT_INPUT 0x01u
 
 #define AN_MAX_ACTIONS 4
-// 7 item strings (title/subtitle/body/source/source id/featureID/notificationID) plus
-// up to two strings (id + title) per action.
-#define AN_MAX_ALLOCS (7 + 2 * AN_MAX_ACTIONS)
+// 7 item strings (title/subtitle/body/source/source id/featureID/notificationID), up to
+// two strings (id + title) per action, and one replies list shared by the text-input actions.
+#define AN_MAX_ALLOCS (7 + 2 * AN_MAX_ACTIONS + 1)
 
 // A fixed namespace so these UUIDs share no space with any other name-based UUID
 // the system might mint. Generated once, at random; only its constancy matters.
@@ -160,21 +165,70 @@ typedef struct {
   uint8_t bytes[];
 } AccessoryNotifPayload;
 
-//! Allocate a NUL-terminated copy of `len` bytes, tracked for later free.
-static char *prv_dup(const uint8_t *src, size_t len, char **allocs, int *n) {
+//! Allocate `size` bytes, tracked for later free.
+static void *prv_alloc(size_t size, char **allocs, int *n) {
   if (*n >= AN_MAX_ALLOCS) {
     // Out of alloc slots: a field is dropped, which can make actions silently fail.
     PBL_LOG_WRN("AN: alloc-slot cap (%d) hit; dropping a field", AN_MAX_ALLOCS);
     return NULL;
   }
-  char *s = kernel_malloc(len + 1);
+  char *p = kernel_malloc(size);
+  if (p) {
+    allocs[(*n)++] = p;
+  }
+  return p;
+}
+
+//! Allocate a NUL-terminated copy of `len` bytes, tracked for later free.
+static char *prv_dup(const uint8_t *src, size_t len, char **allocs, int *n) {
+  char *s = prv_alloc(len + 1, allocs, n);
   if (!s) {
     return NULL;
   }
   memcpy(s, src, len);
   s[len] = '\0';
-  allocs[(*n)++] = s;
   return s;
+}
+
+//! Parse an AN_TAG_REPLIES value — entries of u8 len | len bytes — into a StringList
+//! (allocated via `allocs`) for AttributeIdCannedResponses. NULL, with a warning, when
+//! the value is malformed, so it is ignored as a whole; NULL for an empty value or on OOM.
+static StringList *prv_parse_replies(const uint8_t *val, uint8_t vlen, char **allocs,
+                                     int *num_allocs) {
+  // Validate every entry before building, so a bad one drops the whole value. A NUL
+  // inside an entry would split it in two in the list, shifting every later reply.
+  size_t off = 0;
+  while (off < vlen) {
+    const uint8_t len = val[off++];
+    if (len == 0 || off + len > vlen || memchr(&val[off], '\0', len)) {
+      PBL_LOG_WRN("AN: ignoring malformed replies (%u B)", (unsigned)vlen);
+      return NULL;
+    }
+    off += len;
+  }
+  if (vlen == 0) {
+    return NULL;
+  }
+  // The entries plus one NUL each are exactly vlen bytes; the extra byte is one
+  // string_list_add_string holds back for the first string and never uses. A u8 TLV
+  // length keeps the list under MAX_LENGTH_CANNED_RESPONSES (512), past which storage
+  // would clip it mid-reply.
+  const size_t list_size = sizeof(StringList) + vlen + 1;
+  StringList *list = prv_alloc(list_size, allocs, num_allocs);
+  if (!list) {
+    return NULL;
+  }
+  list->serialized_byte_length = 0;
+  off = 0;
+  while (off < vlen) {
+    const uint8_t len = val[off++];
+    if (string_list_add_string(list, list_size, (const char *)&val[off], len) != len) {
+      PBL_LOG_WRN("AN: replies did not fit their list; ignoring them");
+      return NULL; // the list is still freed with the other allocs
+    }
+    off += len;
+  }
+  return list;
 }
 
 //! Parse one AN_TAG_ACTION value — u8 flags | u8 action_id_len | action_id |
@@ -264,6 +318,8 @@ static void prv_present(const uint8_t *d, size_t n, const char *feature_id, size
   uint8_t ident_len = 0;
   const uint8_t *source_id = NULL;
   uint8_t source_id_len = 0;
+  const uint8_t *replies = NULL;
+  uint8_t replies_len = 0;
   // Keep the first of each content tag so duplicates can't starve the reply-context allocs.
   uint16_t seen_tags = 0;
 
@@ -312,6 +368,12 @@ static void prv_present(const uint8_t *d, size_t n, const char *feature_id, size
           source_id_len = vlen;
         }
         continue;
+      case AN_TAG_REPLIES:
+        if (!replies) { // keep the first; ignore duplicates
+          replies = val;
+          replies_len = vlen;
+        }
+        continue;
       case AN_TAG_ALERT:
         // Consumed but ignored: the watch's own policy (DND/prefs) governs the popup and
         // vibe, like ANCS — not iOS's per-notification alert byte.
@@ -353,6 +415,23 @@ static void prv_present(const uint8_t *d, size_t n, const char *feature_id, size
   }
 
   if (have_content) {
+    // Tag order isn't fixed, so the replies are applied once every action is parsed.
+    StringList *reply_list = NULL;
+    for (uint8_t i = 0; replies && i < num_actions; i++) {
+      if (actions[i].type != TimelineItemActionTypeAccessoryResponse) {
+        continue;
+      }
+      if (!reply_list) {
+        reply_list = prv_parse_replies(replies, replies_len, allocs, &num_allocs);
+        if (!reply_list) {
+          break;
+        }
+      }
+      attribute_list_add_string_list(&action_attrs[i], AttributeIdCannedResponses, reply_list);
+      // Adding reallocates the list, so the action's copy of it must follow.
+      actions[i].attr_list = action_attrs[i];
+    }
+
     // Reply context stored on the item so an action can seal a reply later.
     if (feature_id_len > 0) {
       char *feature_id_str =
