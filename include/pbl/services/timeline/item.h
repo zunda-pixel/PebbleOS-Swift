@@ -65,6 +65,14 @@ typedef enum {
   TimelineItemActionTypeRemoteRemove = 0x12,
   TimelineItemActionTypeAncsGeneric = 0x13,
   TimelineItemActionTypeBLEHRMStopSharing = 0x14,
+  //! A forwarded-AccessoryNotifications action: selecting it seals
+  //! the chosen action back to the phone via the AN transport. Additive — only
+  //! appears on forwarded notifications.
+  TimelineItemActionTypeAccessoryGeneric = 0x15,
+  //! A forwarded-AccessoryNotifications text-reply action: reuses the firmware reply
+  //! menu (canned/emoji/voice) to collect text, then seals it back over the AN
+  //! transport. The AN counterpart of TimelineItemActionTypeAncsResponse.
+  TimelineItemActionTypeAccessoryResponse = 0x16,
 } TimelineItemActionType;
 
 //! Attribute identifiers for icons in the resource pack

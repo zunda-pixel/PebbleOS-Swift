@@ -291,6 +291,7 @@ pbl_clar_test(test_timeline_api
     src/fw/services/timeline/attributes_actions.c
     src/fw/services/timeline/item.c
     src/fw/services/timeline/timeline.c
+    tests/stubs/stubs_accessory_notifications.c
     src/fw/util/crc8.c
     src/fw/util/legacy_checksum.c
     src/fw/util/rand/rand.c

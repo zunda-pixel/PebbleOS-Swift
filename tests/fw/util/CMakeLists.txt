@@ -86,3 +86,31 @@ pbl_clar_test(test_sle
   SOURCES
     src/fw/util/sle.c
 )
+
+# HPKE (RFC 9180) recipient-side Export, checked against the RFC 9180 A.3 vectors.
+# Links the mbed TLS primitives hpke.c uses, built for the host with the firmware's
+# mbed TLS config.
+pbl_clar_test(test_hpke
+  SOURCES
+    src/fw/util/hpke.c
+    third_party/mbedtls/mbedtls/library/aes.c
+    third_party/mbedtls/mbedtls/library/bignum.c
+    third_party/mbedtls/mbedtls/library/bignum_core.c
+    third_party/mbedtls/mbedtls/library/constant_time.c
+    third_party/mbedtls/mbedtls/library/ecp.c
+    third_party/mbedtls/mbedtls/library/ecp_curves.c
+    third_party/mbedtls/mbedtls/library/gcm.c
+    third_party/mbedtls/mbedtls/library/cipher.c
+    third_party/mbedtls/mbedtls/library/cipher_wrap.c
+    third_party/mbedtls/mbedtls/library/hkdf.c
+    third_party/mbedtls/mbedtls/library/md.c
+    third_party/mbedtls/mbedtls/library/platform.c
+    third_party/mbedtls/mbedtls/library/platform_util.c
+    third_party/mbedtls/mbedtls/library/sha256.c
+  DEFINES
+    CONFIG_MBEDTLS
+    MBEDTLS_CONFIG_FILE="pebble_mbedtls_config.h"
+  INCLUDES
+    third_party/mbedtls/mbedtls/include
+    third_party/mbedtls/include
+)
